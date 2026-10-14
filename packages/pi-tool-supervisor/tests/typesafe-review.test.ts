@@ -347,7 +347,7 @@ test("配置面板可以把 model reviewer 切换到 typesafe 引擎并持久化
     // 打开 2（字段页）：第 3 行是「审查引擎」，Enter 开候选列表，下移到 TypeSafe 再 Enter。
     // 打开 3（顶层）：切完引擎后字段页变成 TypeSafe 版本，Esc 退出。
     const ui = createScriptedUi([
-      [...down(6), ENTER],
+      [...down(10), ENTER],
       [...down(2), ENTER, ...down(1), ENTER],
       ["\u001B"],
     ]);

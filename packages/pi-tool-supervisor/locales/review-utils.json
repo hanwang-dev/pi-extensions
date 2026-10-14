@@ -104,8 +104,8 @@
     "en-US": "The rule front matter threshold value {value} is invalid and the default threshold was used; it must be a number greater than 0 and at most 1."
   },
   "invalidBackendConfig": {
-    "zh-CN": "审查配置 reviewers[{index}].backend 无效，必须是 model 或 typesafe。",
-    "en-US": "Review configuration reviewers[{index}].backend is invalid; it must be model or typesafe."
+    "zh-CN": "审查配置 reviewers[{index}].backend 无效，必须是 model、typesafe 或 cloudflare。",
+    "en-US": "Review configuration reviewers[{index}].backend is invalid; it must be model, typesafe, or cloudflare."
   },
   "invalidTypesafeModelConfig": {
     "zh-CN": "审查配置 reviewers[{index}].typesafeModel 无效，必须是非空 TypeSafe 模型名。",
@@ -118,5 +118,13 @@
   "invalidReviewerConfig": {
     "zh-CN": "审查配置 reviewers[{index}] 无效：model backend 需要 provider/model 格式的 model，typesafe backend 需要非空 typesafeModel；两者都必须有 rulesFile 或 rulesFiles。",
     "en-US": "Review configuration reviewers[{index}] is invalid: the model backend needs a provider/model model, the typesafe backend needs a non-empty typesafeModel, and both need rulesFile or rulesFiles."
+  },
+  "invalidCloudflareModelConfig": {
+    "zh-CN": "reviewers[{index}] 的 cloudflareModel 必须为 clef-flash 或 clef。",
+    "en-US": "reviewers[{index}].cloudflareModel must be clef-flash or clef."
+  },
+  "modelIgnoredForCloudflare": {
+    "zh-CN": "reviewers[{index}] 使用 cloudflare backend，已忽略 model 字段。",
+    "en-US": "reviewers[{index}] uses the cloudflare backend; the model field was ignored."
   }
 }

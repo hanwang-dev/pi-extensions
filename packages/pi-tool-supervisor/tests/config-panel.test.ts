@@ -46,6 +46,10 @@ const ROOT_CONFIG_KEYS: readonly string[] = [
 	"maxRuleLines",
 	"typesafe.apiKey",
 	"typesafe.endpoint",
+	"cloudflare.baseUrl",
+	"cloudflare.accountId",
+	"cloudflare.accountIdEnv",
+	"cloudflare.tokenEnv",
 ];
 
 /** 面板提供给测试的可用模型。 */
@@ -63,6 +67,7 @@ function customConfig(): FileEditReviewConfig {
 		maxFileContextChars: 20_000,
 		maxRuleLines: 200,
 		typesafe: { apiKey: "apik-from-config", endpoint: "http://127.0.0.1:9/v1" },
+		cloudflare: { baseUrl: "https://example.com/v4", accountId: "a".repeat(32), accountIdEnv: "CF_ACCOUNT", tokenEnv: "CF_TOKEN" },
 		reviewers: [customReviewer()],
 	};
 }
@@ -126,7 +131,7 @@ test("顶层每一行都有标题、说明和当前值", () => {
 });
 
 test("reviewer 字段页的每一行都有标题、说明和当前值", () => {
-	for (const reviewer of [customReviewer(), typesafeReviewer()]) {
+	for (const reviewer of [customReviewer(), typesafeReviewer(), cloudflareReviewer()]) {
 		for (const item of buildReviewerItems(reviewer, MODELS)) {
 			assert.ok(item.label.length > 0, `${item.id} 没有标题`);
 			assert.ok((item.description ?? "").length > 0, `${item.id} 没有说明`);
@@ -156,7 +161,7 @@ test("取当前显示值写回，顶层每个字段都能往返一致", () => {
 });
 
 test("取当前显示值写回，reviewer 每个可编辑字段都能往返一致", () => {
-	for (const reviewer of [customReviewer(), typesafeReviewer()]) {
+	for (const reviewer of [customReviewer(), typesafeReviewer(), cloudflareReviewer()]) {
 		for (const item of buildReviewerItems(reviewer, MODELS)) {
 			if (item.id === REVIEWER_FIELD.remove) continue;
 			const next = applyReviewerChange(reviewer, item.id, item.currentValue);
@@ -288,4 +293,28 @@ test("模型候选项来自当前可用模型列表", () => {
 	const modelRow = items.find((item) => item.id === REVIEWER_FIELD.model);
 	assert.equal(modelRow?.currentValue, "llm-proxy/LOW");
 	assert.ok(modelRow?.submenu, "模型行必须打开二级列表，而不是原地循环");
+});
+
+function cloudflareReviewer(): FileEditReviewReviewerConfig {
+  const { typesafeModel: _unused, ...reviewer } = typesafeReviewer();
+  return { ...reviewer, backend: "cloudflare", cloudflareModel: "clef" };
+}
+
+test("Cloudflare reviewer exposes its model and switches without stale provider fields", () => {
+  const reviewer = applyReviewerChange(typesafeReviewer(), REVIEWER_FIELD.backend, i18n.t("backendCloudflare"));
+  assert.equal(reviewer?.cloudflareModel, "clef-flash");
+  assert.equal(reviewer?.typesafeModel, undefined);
+  const rows = buildReviewerItems(reviewer!, MODELS);
+  assert.ok(rows.some((row) => row.id === REVIEWER_FIELD.cloudflareModel && row.currentValue === "clef-flash"));
+  assert.ok(!rows.some((row) => [REVIEWER_FIELD.model, REVIEWER_FIELD.typesafeModel].includes(row.id as never)));
+  const typesafe = applyReviewerChange(reviewer!, REVIEWER_FIELD.backend, i18n.t("backendTypesafe"));
+  assert.equal(typesafe?.cloudflareModel, undefined);
+  assert.equal(typesafe?.typesafeModel, "jev-latest");
+});
+
+test("unset Cloudflare fields round-trip without adding configuration", () => {
+  const { cloudflare: _unused, ...config } = customConfig();
+  for (const row of buildRootItems({ config }).filter((row) => row.id.startsWith("cloudflare."))) {
+    assert.deepEqual(applyRootChange(config, row.id, row.currentValue), config);
+  }
 });

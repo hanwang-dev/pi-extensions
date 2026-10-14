@@ -62,7 +62,8 @@ import {
   type ReviewBackend,
   type ReviewTrigger,
 } from "./review-utils.ts";
-import { askTypeSafe, type TypeSafeConnection } from "./typesafe-client.ts";
+import { askCloudflare, DEFAULT_CLOUDFLARE_MODEL, CLOUDFLARE_MODELS } from "./cloudflare-client.ts";
+import { askTypeSafe, type TypeSafeResponse, type TypeSafeConnection } from "./typesafe-client.ts";
 import { openSupervisorPanel } from "./config-panel.ts";
 import {
   buildJudgmentFindings,
@@ -299,9 +300,9 @@ interface RunReviewerOptions {
   diff: string;
   currentFileContext?: CurrentFileContext;
   trigger?: ReviewTrigger;
-  /** 修改前的文件内容；只有 TypeSafe 行定位会用到，其它 backend 忽略。 */
+  /** 修改前的文件内容；判断引擎的行定位使用。 */
   beforeContent?: string;
-  /** 修改后的文件内容；只有 TypeSafe 行定位会用到，其它 backend 忽略。 */
+  /** 修改后的文件内容；判断引擎的行定位使用。 */
   afterContent?: string;
 }
 
@@ -401,8 +402,10 @@ function typeSafeConnection(config: FileEditReviewConfig): TypeSafeConnection {
   };
 }
 
+type JudgmentCaller = (state: unknown, questions: Record<string, unknown>) => Promise<TypeSafeResponse>;
+
 /**
- * 用 TypeSafe 判断后端执行一次审查。
+ * 用 TypeSafe 或 Cloudflare 判断后端执行一次审查。
  *
  * 一条规则 = 一个 Noul 问题，一次请求批量问完（同一份 state 下 TypeSafe 并行回答）；
  * 有条款命中时再做一次 Choice 请求，把问题定位到具体新增行。
@@ -438,6 +441,15 @@ async function reviewWithJudgments(options: RunReviewerOptions): Promise<FileEdi
   const typesafeModel = reviewer.typesafeModel ?? DEFAULT_TYPESAFE_MODEL;
   const connection = typeSafeConnection(config);
   const timeoutMs = config.timeoutSeconds * MILLISECONDS_PER_SECOND;
+  const cloudflare = reviewerBackend(reviewer) === "cloudflare";
+  const deadline = Date.now() + timeoutMs;
+  const ask: JudgmentCaller = (state, questions) => cloudflare
+    ? askCloudflare({
+      ...config.cloudflare, state, questions,
+      model: reviewer.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL,
+      timeoutMs: Math.max(0, deadline - Date.now()), signal: context.signal,
+    })
+    : askTypeSafe({ state, questions, model: typesafeModel, timeoutMs, ...connection, signal: context.signal });
   const state: JudgmentState = {
     tool: toolName,
     trigger,
@@ -450,14 +462,7 @@ async function reviewWithJudgments(options: RunReviewerOptions): Promise<FileEdi
 
   let answers: Record<string, { type?: string; noul?: number }>;
   try {
-    const response = await askTypeSafe({
-      state,
-      questions: buildJudgmentQuestions(compiled.judgments),
-      model: typesafeModel,
-      timeoutMs,
-      ...connection,
-      signal: context.signal,
-    });
+    const response = await ask(state, buildJudgmentQuestions(compiled.judgments));
     answers = response.answers;
   } catch (error) {
     if (context.signal?.aborted) {
@@ -472,6 +477,9 @@ async function reviewWithJudgments(options: RunReviewerOptions): Promise<FileEdi
     };
   }
 
+  if (context.signal?.aborted) {
+    return { ...base, status: SKIPPED_STATUS, durationMs: elapsedMs(), error: i18n.t("reviewAborted") };
+  }
   const { verdicts, unanswered } = readJudgmentVerdicts(compiled.judgments, answers);
   // 没有分级：条款定义了就要遵守，命中即阻断，也就要做行定位。
   const hits = verdicts.filter((verdict) => verdict.hit);
@@ -481,10 +489,11 @@ async function reviewWithJudgments(options: RunReviewerOptions): Promise<FileEdi
     diff,
     beforeContent,
     afterContent,
-    timeoutMs,
-    typesafeModel,
-    connection,
+    ask,
   });
+  if (context.signal?.aborted) {
+    return { ...base, status: SKIPPED_STATUS, durationMs: elapsedMs(), error: i18n.t("reviewAborted") };
+  }
   // 缺答案和切不出条款的文件不能当成通过：它们列进 failed 和 warnings。
   const unresolved = [
     ...unparsableRules,
@@ -513,7 +522,7 @@ async function reviewWithJudgments(options: RunReviewerOptions): Promise<FileEdi
 }
 
 /**
- * 命中 error 级规则后再发一次 Choice 请求，把问题定位到具体新增行。
+ * 命中规则后再发一次 Choice 请求，把问题定位到具体新增行。
  * 没有修改后的文件内容时跳过定位：此时只有规则级问题可报，不是静默降级。
  */
 async function locateJudgmentLines(options: {
@@ -522,11 +531,9 @@ async function locateJudgmentLines(options: {
   diff: string;
   beforeContent?: string;
   afterContent?: string;
-  timeoutMs: number;
-  typesafeModel: string;
-  connection: TypeSafeConnection;
+  ask: JudgmentCaller;
 }): Promise<{ located: Map<string, LocatedLine>; warnings: string[] }> {
-  const { context, judgments, diff, beforeContent, afterContent, timeoutMs, typesafeModel, connection } = options;
+  const { context, judgments, diff, beforeContent, afterContent, ask } = options;
   const located = new Map<string, LocatedLine>();
   const warnings: string[] = [];
   if (judgments.length === 0 || afterContent === undefined) return { located, warnings };
@@ -537,17 +544,10 @@ async function locateJudgmentLines(options: {
   }
   if (scan.lines.length === 0) return { located, warnings };
   try {
-    const response = await askTypeSafe({
-      state: {
-        diff,
-        candidate_lines: Object.fromEntries(scan.lines.map((candidate) => [String(candidate.line), candidate.text])),
-      },
-      questions: buildLocalizationQuestions(judgments, scan.lines),
-      model: typesafeModel,
-      timeoutMs,
-      ...connection,
-      signal: context.signal,
-    });
+    const response = await ask({
+      diff,
+      candidate_lines: Object.fromEntries(scan.lines.map((candidate) => [String(candidate.line), candidate.text])),
+    }, buildLocalizationQuestions(judgments, scan.lines));
     return { located: readLocatedLines(judgments, response.answers, scan.lines), warnings };
   } catch (error) {
     // 行定位失败不影响规则级结论，但必须在审计里可见。
@@ -560,9 +560,9 @@ async function locateJudgmentLines(options: {
   }
 }
 
-/** 按 reviewer 的 backend 分发；两种引擎的失败语义一致：非阻断，只在审计卡片里可见。 */
+/** 按 reviewer 的 backend 分发；各引擎的失败语义一致：非阻断，只在审计卡片里可见。 */
 async function runReviewer(options: RunReviewerOptions): Promise<FileEditReviewResult> {
-  return reviewerBackend(options.reviewer) === TYPE_SAFE_BACKEND
+  return reviewerBackend(options.reviewer) !== "model"
     ? reviewWithJudgments(options)
     : reviewWithModel(options);
 }
@@ -993,8 +993,17 @@ async function askNewReviewer(
 ): Promise<FileEditReviewReviewerConfig | undefined> {
   const name = (await ctx.ui.input(i18n.t("reviewerName"), `reviewer-${reviewers.length + 1}`))?.trim();
   if (!name) return undefined;
-  const backend = await ctx.ui.select(i18n.t("backendInput"), [i18n.t("backendModel"), i18n.t("backendTypesafe")]);
+  const backend = await ctx.ui.select(i18n.t("backendInput"), [i18n.t("backendModel"), i18n.t("backendTypesafe"), i18n.t("backendCloudflare")]);
   if (!backend) return undefined;
+  if (backend === i18n.t("backendCloudflare")) {
+    const model = await ctx.ui.select(i18n.t("cloudflareModelInput"), [...CLOUDFLARE_MODELS]);
+    const cloudflareModel = CLOUDFLARE_MODELS.find((entry) => entry === model);
+    if (!cloudflareModel) return undefined;
+    const rulesFiles = await askRuleFiles(ctx);
+    if (!rulesFiles) return undefined;
+    return { name, backend: "cloudflare", cloudflareModel, rulesFiles, enabled: true,
+      tools: [...DEFAULT_REVIEW_TOOLS], trigger: AFTER_TRIGGER };
+  }
   const isTypesafe = backend === i18n.t("backendTypesafe");
   if (isTypesafe) {
     const model = await ctx.ui.input(i18n.t("typesafeModelInput"), DEFAULT_TYPESAFE_MODEL);

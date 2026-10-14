@@ -30,7 +30,40 @@
 | `backend` | 由谁判断 | 开销 | 结果形态 |
 | --- | --- | --- | --- |
 | `model`（默认） | 一个 Pi 对话模型，把全部规则和 diff 放进一次 prompt 里读 | 每个 reviewer 一次对话补全 | 自由文本 JSON：`passed`、`summary`、`findings` |
+| `cloudflare` | Workers AI Clef Flash 或 Clef 的原生 Noul / Choice | 取决于模型、状态与批次数 | 使用现有阈值的条款概率与 findings |
 | `typesafe` | TypeSafe System One，一次批量请求里每条规则一个 typed question | 实测 3 条规则的 reviewer：约 1-2 秒、约 1,400 input token、每次审查约 US$0.00006 | 每条规则一个校准过的 `noul` 概率；阈值由代码判定 |
+
+### Cloudflare Clef 引擎
+
+设置 `backend: "cloudflare"` 直接使用 Workers AI。`cloudflareModel` 默认 `clef-flash`，也可选较大的 `clef`。规则判断（Noul）和行定位（Choice）均使用所选 backend 与模型，复用 TypeSafe 的编号条款、阈值与 findings。旧 reviewer 的 model / typesafe 行为保持兼容，不自动回退或迁移配置。
+
+```json
+{
+  "enabled": true,
+  "timeoutSeconds": 10,
+  "cloudflare": {
+    "baseUrl": "https://api.cloudflare.com/client/v4",
+    "accountIdEnv": "CLOUDFLARE_ACCOUNT_ID",
+    "tokenEnv": "CLOUDFLARE_API_TOKEN"
+  },
+  "reviewers": [{
+    "name": "code-quality",
+    "backend": "cloudflare",
+    "cloudflareModel": "clef-flash",
+    "rulesFiles": ["./rules/code-quality.md"],
+    "tools": ["edit", "write"],
+    "trigger": "after"
+  }]
+}
+```
+
+由可信启动层向 Pi 进程注入 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。token 需要 Workers AI 权限，参见 [Cloudflare REST 设置](https://developers.cloudflare.com/workers-ai/get-started/rest-api/)。配置文件与面板只保存**环境变量名**，不保存 token 原值。可选的 `accountId` 是非密钥显式账号 ID，优先于 `accountIdEnv`；账号 ID 必须是 32 位十六进制标识。`tokenEnv` 可指定其它变量，包括某些启动层沿用的 `CLOUDFARE_WORKER_AI_API_KEY` 历史拼写。其它插件可用的凭证不会自动传给 Pi。
+
+`/config:tool-supervisor` 提供全部四个连接字段、backend 与 Cloudflare 模型选择；修改立即作用于下一次匹配工具调用，无需重载。审计标签为 `cloudflare/clef-flash` 或 `cloudflare/clef`。缺凭证、失败的 REST 包装（包括 HTTP 200 且 `success: false`）、错误或不完整的答案、非法概率均记为 `failed`。失败不会额外阻断 before；明确 rejected 才阻断执行，after 保留原工具结果。行定位失败保留已确认的规则拒绝，并添加审计警告。
+
+使用 [Clef](https://developers.cloudflare.com/workers-ai/models/clef/) / [Clef Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) REST 端点。规则判断与行定位超过 64 个问题时均顺序分批；非法或过长问题 ID 无碰撞映射，生成 findings 前还原，不丢弃条款。Cloudflare 的 `timeoutSeconds` 由判断、定位、全部批次、响应读取与重试共同使用。每批网络故障或 HTTP 429/500/502/503/504 最多尝试三次并有界退避；401/403/422/451 等明确拒绝不重试。父任务取消后停止后续请求。响应最大 1 MiB；错误只展示 HTTP 状态、Cloudflare 数字错误码和安全原因，不展示原始响应内容。
+
+`baseUrl` 默认 `https://api.cloudflare.com/client/v4`；自定义远程网关须为不含 URL 凭证、查询参数或片段的 HTTPS，本机测试才允许 HTTP。拒绝重定向以防 Authorization 转发。Clef 可能按上下文窗口截断过长文本 state；拆小改动并用 `maxFileContextChars` 控制审查上下文。本地 HTTP 确定性测试不能证明线上模型质量。生产启用前应在有授权的凭证运行层用合成输入验证 Noul 和 Choice。消费内置 supervisor 的 Bridge 还需独立更新版本、注入凭证及部署。
 
 ### TypeSafe 引擎
 
@@ -142,7 +175,7 @@ filePatterns: ["**/*.ts"]
 
 - **条款写得多具体，判得就多准。** 概率判不准的时候，该改的是那句话怎么写（把豁免条件列清楚），不是换格式。实测：「非显而易见数字必须提取为有语义的常量」里的「有语义」太主观，`const fallback = 30000;` 只给 0.52；而「禁止 `any`」这种边界清楚的条款给 0.97。
 - **阈值按文件调。** 目前 `threshold` 是文件级。同一个文件里条款的好坏差异大时，只能靠把条款写清楚，不能逐条调。
-- **没有分级。** 两个后端一致：条款命中就阻断。规则文件里历史遗留的 `[error]` / `[warning]` 标注会被剔掉，不改变判定。
+- **没有分级。** 所有后端一致：条款命中就阻断。规则文件里历史遗留的 `[error]` / `[warning]` 标注会被剔掉，不改变判定。
 - 行号定位需要修改后的文件内容。`before` 审查只有 `write` 拿得到，所以 `edit` 的 before 审查只报规则级问题、不给行号。
 - diff 新增超过 40 行时会跳过行定位，并在审计里给出警告；规则级问题仍然照常报告。
 - 会把整份修改后文件作为上下文发出，受 `maxFileContextChars` 限制；相比只发 diff，输入 token 大约翻倍。
@@ -169,7 +202,7 @@ pi install npm:pi-tool-supervisor
 /config:tool-supervisor
 ```
 
-它会打开配置面板：顶层是总开关、超时、文件上下文与规则行数上限、TypeSafe 连接，然后是每个 reviewer 一行。选中某个 reviewer 打开它的字段页（启用、名称、审查引擎、审查模型、规则文件、工具范围、触发阶段、条件模块、文件匹配）以及删除动作。审查模型那一行回车打开本会话可用模型的可搜索列表。每改一项立即写盘，无需 `/reload`。
+它会打开配置面板：顶层是总开关、超时、文件上下文与规则行数上限、TypeSafe 与 Cloudflare 连接，然后是每个 reviewer 一行。选中某个 reviewer 打开它的字段页（启用、名称、审查引擎、审查模型、规则文件、工具范围、触发阶段、条件模块、文件匹配）以及删除动作。审查模型那一行回车打开本会话可用模型的可搜索列表。每改一项立即写盘，无需 `/reload`。
 
 ## 配置
 
@@ -216,16 +249,18 @@ pi install npm:pi-tool-supervisor
 }
 ```
 
-每个 reviewer 必须提供 `provider/model` 格式的模型（`model` 引擎）或 `typesafeModel`（`typesafe` 引擎），并提供 `rulesFile` 或 `rulesFiles`。相对规则文件和 condition 模块路径按当前项目工作目录解析。
+每个 reviewer 必须提供 `provider/model` 格式的模型（`model` 引擎），或选择 `typesafe` / `cloudflare` 及各自模型名（可使用默认值），并提供 `rulesFile` 或 `rulesFiles`。相对规则文件和 condition 模块路径按当前项目工作目录解析。
 
 | 配置项 | 含义 |
 | --- | --- |
 | `enabled` | 启用或关闭审查层。 |
-| `timeoutSeconds` | 每个 reviewer 模型调用的最长等待时间。 |
+| `timeoutSeconds` | 每个 reviewer 模型调用的最长等待时间；Cloudflare 的判断、定位、批次与重试共用此预算。 |
 | `maxFileContextChars` | 发送给 reviewer 的修改后文件上下文上限，默认 50,000 字符；超大文件仅发送首次和末次变更附近的有界片段并明确标记。 |
 | `maxRuleLines` | 单条审查规则允许读取的最大行数。 |
 | `typesafe` | TypeSafe 引擎的连接设置；有 `apiKey` 和 `endpoint` 两个字段，都可省略并回退到同名环境变量。 |
-| `backend` | `model`（默认）或 `typesafe`，选择审查引擎。 |
+| `cloudflare` | 连接设置：`baseUrl`、可选显式 `accountId`、`accountIdEnv`（默认 `CLOUDFLARE_ACCOUNT_ID`）、`tokenEnv`（默认 `CLOUDFLARE_API_TOKEN`）。 |
+| `cloudflareModel` | 仅 `cloudflare` 使用，`clef-flash`（默认）或 `clef`。 |
+| `backend` | `model`（默认）、`typesafe` 或 `cloudflare`，选择审查引擎。 |
 | `typesafeModel` | `typesafe` 引擎使用的 TypeSafe 模型名，默认 `jev-latest`。 |
 | `reviewers` | reviewer 名称、模型、规则文件、`tools`、`trigger` 和可选的 condition 模块；省略生命周期字段时保持旧的 `edit`/`write` + `after` 行为。 |
 | `condition` | 可选的本地 TypeScript/ESM 模块路径。默认导出函数会收到 Pi 原生工具事件、`ExtensionContext` 和 `ToolConditionHelpers`；返回 `false` 时跳过该 reviewer，不调用模型。 |
@@ -246,7 +281,7 @@ consumers:
 
 `filePatterns` 使用简化 glob：`*` 不跨 `/`，`**` 可以跨目录，任意位置的 `**/` 都可匹配零层或多层目录。反斜杠会归一化为 `/`，开头的 `./` 会被忽略。
 
-`threshold` 是 `typesafe` 引擎专用的可选 front matter 字段，默认 `0.85`；`model` 引擎忽略它。
+`threshold` 是 `typesafe` 与 `cloudflare` 引擎使用的可选 front matter 字段，默认 `0.85`；`model` 引擎忽略它。
 
 ### Condition 模块
 
@@ -301,3 +336,5 @@ condition 返回 `false` 时跳过该 reviewer，不读取其规则文件，也�
 ## 许可证
 
 [MIT](../../LICENSE)
+
+Cloudflare reviewer 还需可信运行层向 Pi 进程注入所选账号与 token 环境变量；详见上面的 Cloudflare 引擎说明。

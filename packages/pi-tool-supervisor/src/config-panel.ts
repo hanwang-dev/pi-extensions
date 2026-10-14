@@ -31,8 +31,11 @@ import {
 	getKeybindings,
 } from "@earendil-works/pi-tui";
 import { createTranslator, loadCatalog } from "pi-extensions-i18n";
+import { CLOUDFLARE_MODELS, DEFAULT_CLOUDFLARE_MODEL } from "./cloudflare-client.ts";
 import {
 	DEFAULT_TYPESAFE_MODEL,
+	REVIEW_BACKENDS,
+	reviewerModelLabel,
 	reviewerBackend,
 	type FileEditReviewConfig,
 	type FileEditReviewReviewerConfig,
@@ -56,6 +59,10 @@ export const ROOT_FIELD = {
 	typesafeApiKey: "typesafe.apiKey",
 	/** TypeSafe 端点。 */
 	typesafeEndpoint: "typesafe.endpoint",
+	cloudflareBaseUrl: "cloudflare.baseUrl",
+	cloudflareAccountId: "cloudflare.accountId",
+	cloudflareAccountIdEnv: "cloudflare.accountIdEnv",
+	cloudflareTokenEnv: "cloudflare.tokenEnv",
 	/** 添加一个 reviewer。 */
 	addReviewer: "addReviewer",
 } as const;
@@ -72,6 +79,7 @@ export const REVIEWER_FIELD = {
 	model: "model",
 	/** TypeSafe 模型名。 */
 	typesafeModel: "typesafeModel",
+	cloudflareModel: "cloudflareModel",
 	/** 规则文件列表。 */
 	rulesFiles: "rulesFiles",
 	/** 工具范围。 */
@@ -109,6 +117,10 @@ export const ROOT_CONFIG_FIELD_IDS: readonly string[] = [
 	ROOT_FIELD.maxRuleLines,
 	ROOT_FIELD.typesafeApiKey,
 	ROOT_FIELD.typesafeEndpoint,
+	ROOT_FIELD.cloudflareBaseUrl,
+	ROOT_FIELD.cloudflareAccountId,
+	ROOT_FIELD.cloudflareAccountIdEnv,
+	ROOT_FIELD.cloudflareTokenEnv,
 ];
 
 /**
@@ -123,6 +135,7 @@ export const REVIEWER_CONFIG_FIELD_IDS: readonly string[] = [
 	REVIEWER_FIELD.backend,
 	REVIEWER_FIELD.model,
 	REVIEWER_FIELD.typesafeModel,
+	REVIEWER_FIELD.cloudflareModel,
 	REVIEWER_FIELD.rulesFiles,
 	REVIEWER_FIELD.tools,
 	REVIEWER_FIELD.trigger,
@@ -132,7 +145,7 @@ export const REVIEWER_CONFIG_FIELD_IDS: readonly string[] = [
 ];
 
 /** 审查引擎的候选值。 */
-const BACKEND_VALUES: readonly ReviewBackend[] = ["model", "typesafe"];
+const BACKEND_VALUES: readonly ReviewBackend[] = REVIEW_BACKENDS;
 /** 触发阶段的候选值。 */
 const TRIGGER_VALUES: readonly ReviewTrigger[] = ["after", "before"];
 /** 超时候选值（秒）。 */
@@ -174,13 +187,21 @@ interface ReviewerRow {
 	id: ReviewerFieldId;
 	/** 取值方式。 */
 	kind: ReviewerRowKind;
-	/** 只在某个 backend 下出现时填该 backend；留空表示两种 backend 都显示。 */
+	/** 只在某个 backend 下出现时填该 backend；留空表示所有 backend 都显示。 */
 	backend?: ReviewBackend;
 	/** 标题文案 key。 */
 	labelKey: string;
 	/** 说明文案 key。 */
 	descriptionKey: string;
 }
+
+/** Cloudflare connection rows store configuration text, never resolved credentials. */
+const CLOUDFLARE_ROOT_ROWS = [
+	{ id: ROOT_FIELD.cloudflareBaseUrl, field: "baseUrl", labelKey: "panelLabelCloudflareBaseUrl", descriptionKey: "panelDescCloudflareBaseUrl" },
+	{ id: ROOT_FIELD.cloudflareAccountId, field: "accountId", labelKey: "panelLabelCloudflareAccountId", descriptionKey: "panelDescCloudflareAccountId" },
+	{ id: ROOT_FIELD.cloudflareAccountIdEnv, field: "accountIdEnv", labelKey: "panelLabelCloudflareAccountIdEnv", descriptionKey: "panelDescCloudflareAccountIdEnv" },
+	{ id: ROOT_FIELD.cloudflareTokenEnv, field: "tokenEnv", labelKey: "panelLabelCloudflareTokenEnv", descriptionKey: "panelDescCloudflareTokenEnv" },
+] as const;
 
 /** reviewer 字段页的行顺序：开关 → 身份 → 引擎 → 模型 → 规则 → 范围 → 动作。 */
 const REVIEWER_ROWS: readonly ReviewerRow[] = [
@@ -189,6 +210,7 @@ const REVIEWER_ROWS: readonly ReviewerRow[] = [
 	{ id: REVIEWER_FIELD.backend, kind: "choice", labelKey: "panelLabelBackend", descriptionKey: "panelDescBackend" },
 	{ id: REVIEWER_FIELD.model, kind: "model", backend: "model", labelKey: "panelLabelModel", descriptionKey: "panelDescModel" },
 	{ id: REVIEWER_FIELD.typesafeModel, kind: "text", backend: "typesafe", labelKey: "panelLabelTypesafeModel", descriptionKey: "panelDescTypesafeModel" },
+	{ id: REVIEWER_FIELD.cloudflareModel, kind: "choice", backend: "cloudflare", labelKey: "panelLabelCloudflareModel", descriptionKey: "panelDescCloudflareModel" },
 	{ id: REVIEWER_FIELD.rulesFiles, kind: "textList", labelKey: "panelLabelRulesFiles", descriptionKey: "panelDescRulesFiles" },
 	{ id: REVIEWER_FIELD.tools, kind: "textList", labelKey: "panelLabelTools", descriptionKey: "panelDescTools" },
 	{ id: REVIEWER_FIELD.trigger, kind: "choice", labelKey: "panelLabelTrigger", descriptionKey: "panelDescTrigger" },
@@ -214,7 +236,7 @@ function toggleOptions(): PanelOption[] {
 /** 审查引擎候选项。 */
 function backendOptions(): PanelOption[] {
 	return BACKEND_VALUES.map((value) => ({
-		label: i18n.t(value === "typesafe" ? "backendTypesafe" : "backendModel"),
+		label: i18n.t(value === "cloudflare" ? "backendCloudflare" : value === "typesafe" ? "backendTypesafe" : "backendModel"),
 		value,
 	}));
 }
@@ -295,6 +317,8 @@ function readReviewerField(reviewer: FileEditReviewReviewerConfig, id: ReviewerF
 			return reviewer.model ?? "";
 		case REVIEWER_FIELD.typesafeModel:
 			return reviewer.typesafeModel ?? "";
+		case REVIEWER_FIELD.cloudflareModel:
+			return reviewer.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL;
 		case REVIEWER_FIELD.condition:
 			return reviewer.condition ?? "";
 		case REVIEWER_FIELD.trigger:
@@ -349,7 +373,7 @@ function normalizeTextValue(value: string): string {
  * 把 reviewer 字段页回传的值写回配置对象。
  *
  * 返回 undefined 表示这一项不该由面板改或值无法识别，调用方保持原值。
- * 切换 backend 时会清掉另一个引擎专用的字段，避免同时存在 `model` 与 `backend: typesafe`。
+ * 切换 backend 时清掉其它引擎专用字段。
  */
 export function applyReviewerChange(
 	reviewer: FileEditReviewReviewerConfig,
@@ -369,16 +393,25 @@ export function applyReviewerChange(
 			return next;
 		case REVIEWER_FIELD.backend: {
 			const backend = optionValueFromLabel(backendOptions(), value);
-			if (backend !== "model" && backend !== "typesafe") return undefined;
+			if (backend !== "model" && backend !== "typesafe" && backend !== "cloudflare") return undefined;
+			if (backend === "cloudflare") {
+				next.backend = "cloudflare";
+				next.cloudflareModel ??= DEFAULT_CLOUDFLARE_MODEL;
+				delete next.model;
+				delete next.typesafeModel;
+				return next;
+			}
 			if (backend === "typesafe") {
 				next.backend = "typesafe";
 				next.typesafeModel ??= DEFAULT_TYPESAFE_MODEL;
+				delete next.cloudflareModel;
 				delete next.model;
 				return next;
 			}
 			if (!next.model) return undefined;
 			delete next.backend;
 			delete next.typesafeModel;
+			delete next.cloudflareModel;
 			return next;
 		}
 		case REVIEWER_FIELD.model: {
@@ -389,6 +422,10 @@ export function applyReviewerChange(
 			next.model = model;
 			return next;
 		}
+		case REVIEWER_FIELD.cloudflareModel:
+			if (!CLOUDFLARE_MODELS.includes(value as typeof DEFAULT_CLOUDFLARE_MODEL)) return undefined;
+			next.cloudflareModel = value as typeof DEFAULT_CLOUDFLARE_MODEL;
+			return next;
 		case REVIEWER_FIELD.typesafeModel:
 			// 「未设置」写回默认值，与面板上显示的默认值一致。
 			next.typesafeModel = normalizeTextValue(value) || DEFAULT_TYPESAFE_MODEL;
@@ -462,6 +499,17 @@ export function applyRootChange(
 			return rest;
 		}
 		return { ...config, typesafe };
+	}
+	const row = CLOUDFLARE_ROOT_ROWS.find((entry) => entry.id === id);
+	if (row) {
+		const cloudflare = { ...config.cloudflare };
+		const trimmed = normalizeTextValue(value);
+		if ((row.field === "tokenEnv" || row.field === "accountIdEnv") && trimmed && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) return undefined;
+		if (trimmed) cloudflare[row.field] = trimmed;
+		else delete cloudflare[row.field];
+		if (Object.keys(cloudflare).length) return { ...config, cloudflare };
+		const { cloudflare: _removed, ...rest } = config;
+		return rest;
 	}
 	return undefined;
 }
@@ -592,7 +640,8 @@ export function buildReviewerItems(
 					? backendOptions()
 					: row.id === REVIEWER_FIELD.trigger
 						? triggerOptions()
-						: [];
+						: row.id === REVIEWER_FIELD.cloudflareModel
+							? CLOUDFLARE_MODELS.map((value) => ({ label: value, value })) : [];
 				return {
 					id: row.id,
 					label,
@@ -701,11 +750,20 @@ export function buildRootItems(options: RootItemsOptions): SettingItem[] {
 				createTextSubmenu(config.typesafe?.endpoint ?? "", i18n.t("panelDescTypesafeEndpoint"), done),
 		},
 	];
+	for (const row of CLOUDFLARE_ROOT_ROWS) {
+		items.push({
+			id: row.id, label: i18n.t(row.labelKey), description: i18n.t(row.descriptionKey),
+			currentValue: config.cloudflare?.[row.field] || i18n.t("panelValueUnset"),
+			submenu: (_current, done) => createTextSubmenu(config.cloudflare?.[row.field] ?? "", i18n.t(row.descriptionKey), done),
+		});
+	}
 	for (const reviewer of config.reviewers) {
 		items.push(actionRow({
 			id: `reviewer:${reviewer.name}`,
 			label: `${reviewer.enabled === false ? "○" : "●"} ${reviewer.name}`,
-			description: reviewerBackend(reviewer) === "typesafe"
+			description: reviewerBackend(reviewer) === "cloudflare"
+				? i18n.t("backendCloudflare")
+				: reviewerBackend(reviewer) === "typesafe"
 				? i18n.t("backendTypesafe")
 				: i18n.t("backendModel"),
 			currentValue: reviewerModelLabelForPanel(reviewer),
@@ -722,10 +780,8 @@ export function buildRootItems(options: RootItemsOptions): SettingItem[] {
 
 /** reviewer 行右侧显示的模型标签；与审计卡片保持一致。 */
 function reviewerModelLabelForPanel(reviewer: FileEditReviewReviewerConfig): string {
-	if (reviewerBackend(reviewer) === "typesafe") {
-		return `typesafe/${reviewer.typesafeModel ?? DEFAULT_TYPESAFE_MODEL}`;
-	}
-	return reviewer.model ?? i18n.t("panelValueUnset");
+	return reviewerBackend(reviewer) === "model" && !reviewer.model
+		? i18n.t("panelValueUnset") : reviewerModelLabel(reviewer);
 }
 
 /** 面板与宿主之间的接口；配置读写与生效动作都由入口注入。 */
@@ -756,7 +812,7 @@ async function openReviewerPanel(
 		container.addChild(
 			new Text(theme.fg("accent", theme.bold(i18n.t("panelReviewerTitle", { name: current.name }))), 1, 1),
 		);
-		const list = new SettingsList(
+		const buildList = (): SettingsList => new SettingsList(
 			buildReviewerItems(current, handlers.getModels()),
 			REVIEWER_ROWS.length,
 			getSettingsListTheme(),
@@ -766,20 +822,25 @@ async function openReviewerPanel(
 					done(undefined);
 					return;
 				}
-				const next = applyReviewerChange(current, id, newValue);
+				const selectedModel = handlers.getModels()[0];
+				const candidate = id === REVIEWER_FIELD.backend && newValue === i18n.t("backendModel") && !current.model && selectedModel
+					? { ...current, model: `${selectedModel.provider}/${selectedModel.model}` } : current;
+				const next = applyReviewerChange(candidate, id, newValue);
 				if (!next) return;
 				current = next;
 				const config = handlers.getConfig();
 				const reviewers = [...config.reviewers];
 				reviewers[index] = current;
 				// 切 backend 会增删字段页的行，所以重建整个列表而不是只 updateValue。
-				list.invalidate();
+				list = buildList();
+				list.selectItem(id);
 				void handlers.onChange({ ...config, reviewers });
 				tui.requestRender();
 			},
 			() => done(undefined),
 		);
-		container.addChild(list);
+		let list = buildList();
+		container.addChild({ render: (width) => list.render(width), invalidate: () => list.invalidate() });
 		return {
 			/** 布局交给 Container。 */
 			render: (width) => container.render(width),
@@ -819,10 +880,9 @@ export async function openSupervisorPanel(
 			container.addChild(
 				new Text(theme.fg("accent", theme.bold(i18n.t("configTitle"))), 1, 1),
 			);
-			const items = buildRootItems({ config });
-			const list = new SettingsList(
-				items,
-				Math.max(1, items.length),
+			const buildList = (): SettingsList => new SettingsList(
+				buildRootItems({ config: handlers.getConfig() }),
+				Math.max(1, buildRootItems({ config: handlers.getConfig() }).length),
 				getSettingsListTheme(),
 				(id, newValue) => {
 					if (id === ROOT_FIELD.addReviewer) {
@@ -833,14 +893,17 @@ export async function openSupervisorPanel(
 						done(id);
 						return;
 					}
-					const next = applyRootChange(config, id, newValue);
+					const next = applyRootChange(handlers.getConfig(), id, newValue);
 					if (!next) return;
 					void handlers.onChange(next);
+					list = buildList();
+					list.selectItem(id);
 					tui.requestRender();
 				},
 				() => done(undefined),
 			);
-			container.addChild(list);
+			let list = buildList();
+			container.addChild({ render: (width) => list.render(width), invalidate: () => list.invalidate() });
 			return {
 				/** 布局交给 Container。 */
 				render: (width) => container.render(width),

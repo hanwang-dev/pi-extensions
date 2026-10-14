@@ -1330,9 +1330,9 @@ test("配置面板可以编辑并持久化 reviewer 的 tools 和 trigger", asyn
     // 打开 4（字段页）：下移到「触发阶段」（第 7 行），Enter 开列表，下移到 before，Enter 选定。
     // 打开 5（顶层）：Esc 退出面板。
     const ui = createScriptedUi([
-      [...down(6), ENTER],
+      [...down(10), ENTER],
       [...down(5), ENTER, "\u000B", ..."bash, *".split(""), ENTER],
-      [...down(6), ENTER],
+      [...down(10), ENTER],
       [...down(6), ENTER, DOWN, ENTER],
       ["\u001B"],
     ]);

@@ -348,8 +348,8 @@
     "en-US": "Review engine"
   },
   "panelDescBackend": {
-    "zh-CN": "对话模型把 diff 交给模型判断；TypeSafe 把规则当判据交给 System One。",
-    "en-US": "Chat model sends the diff to a model; TypeSafe sends each rule to System One as a judgment."
+    "zh-CN": "选择对话模型、TypeSafe 或 Cloudflare Clef 判断模型；切换立即生效。",
+    "en-US": "Choose a conversation model, TypeSafe, or Cloudflare Clef decision model; changes take effect immediately."
   },
   "panelLabelModel": {
     "zh-CN": "审查模型",
@@ -422,5 +422,53 @@
   "panelDescRemove": {
     "zh-CN": "从配置里移除该审查器，会先让你确认。",
     "en-US": "Removes this reviewer from the configuration; you are asked to confirm first."
+  },
+  "backendCloudflare": {
+    "zh-CN": "Cloudflare Clef 判断模型",
+    "en-US": "Cloudflare Clef decision model"
+  },
+  "cloudflareModelInput": {
+    "zh-CN": "选择 Cloudflare 模型",
+    "en-US": "Choose a Cloudflare model"
+  },
+  "panelLabelCloudflareModel": {
+    "zh-CN": "Cloudflare 模型",
+    "en-US": "Cloudflare model"
+  },
+  "panelDescCloudflareModel": {
+    "zh-CN": "Clef Flash 较快；Clef 较大。规则判断与行定位均使用所选模型。",
+    "en-US": "Clef Flash is faster; Clef is larger. Rule judgments and line localization use the selected model."
+  },
+  "panelLabelCloudflareBaseUrl": {
+    "zh-CN": "Cloudflare API 地址",
+    "en-US": "Cloudflare API base URL"
+  },
+  "panelDescCloudflareBaseUrl": {
+    "zh-CN": "留空使用 https://api.cloudflare.com/client/v4；远程网关需要 HTTPS。",
+    "en-US": "Leave empty for https://api.cloudflare.com/client/v4; remote gateways require HTTPS."
+  },
+  "panelLabelCloudflareAccountId": {
+    "zh-CN": "Cloudflare 账号 ID",
+    "en-US": "Cloudflare account ID"
+  },
+  "panelDescCloudflareAccountId": {
+    "zh-CN": "可选的非密钥账号 ID；显式值优先于账号环境变量。",
+    "en-US": "Optional non-secret account ID; an explicit value takes precedence over the account environment variable."
+  },
+  "panelLabelCloudflareAccountIdEnv": {
+    "zh-CN": "Cloudflare 账号环境变量",
+    "en-US": "Cloudflare account variable"
+  },
+  "panelDescCloudflareAccountIdEnv": {
+    "zh-CN": "账号 ID 的环境变量名；留空默认 CLOUDFLARE_ACCOUNT_ID。",
+    "en-US": "Name of the account ID variable; empty defaults to CLOUDFLARE_ACCOUNT_ID."
+  },
+  "panelLabelCloudflareTokenEnv": {
+    "zh-CN": "Cloudflare token 环境变量",
+    "en-US": "Cloudflare token variable"
+  },
+  "panelDescCloudflareTokenEnv": {
+    "zh-CN": "仅填写环境变量名，不能填写 token。留空默认 CLOUDFLARE_API_TOKEN。",
+    "en-US": "Enter only the variable name, never the token. Empty defaults to CLOUDFLARE_API_TOKEN."
   }
 }

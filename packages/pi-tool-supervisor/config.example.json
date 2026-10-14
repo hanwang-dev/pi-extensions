@@ -14,7 +14,10 @@
       "rulesFiles": [
         "/absolute/path/to/rules.md"
       ],
-      "tools": ["edit", "write"],
+      "tools": [
+        "edit",
+        "write"
+      ],
       "trigger": "after",
       "condition": "/absolute/path/to/condition.ts"
     },
@@ -25,8 +28,29 @@
       "rulesFiles": [
         "/absolute/path/to/javascript-typescript.md"
       ],
-      "tools": ["edit", "write"],
+      "tools": [
+        "edit",
+        "write"
+      ],
+      "trigger": "after"
+    },
+    {
+      "name": "cloudflare-quality",
+      "backend": "cloudflare",
+      "cloudflareModel": "clef-flash",
+      "rulesFiles": [
+        "./rules/code-quality.md"
+      ],
+      "tools": [
+        "edit",
+        "write"
+      ],
       "trigger": "after"
     }
-  ]
+  ],
+  "cloudflare": {
+    "baseUrl": "https://api.cloudflare.com/client/v4",
+    "accountIdEnv": "CLOUDFLARE_ACCOUNT_ID",
+    "tokenEnv": "CLOUDFLARE_API_TOKEN"
+  }
 }

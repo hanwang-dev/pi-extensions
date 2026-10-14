@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { createTranslator, loadCatalog } from "pi-extensions-i18n";
 import { createTwoFilesPatch } from "diff";
+import { CLOUDFLARE_MODELS, DEFAULT_CLOUDFLARE_MODEL, type CloudflareConnection, type CloudflareModel } from "./cloudflare-client.ts";
 
 const i18n = createTranslator(loadCatalog(new URL("../locales/review-utils.json", import.meta.url)));
 
@@ -19,7 +20,7 @@ const DEFAULT_REVIEW_TOOLS = ["edit", "write"];
 const ALL_TOOLS = "*";
 const REVIEW_TRIGGERS = ["before", "after"] as const;
 const DEFAULT_REVIEW_TRIGGER: ReviewTrigger = "after";
-export const REVIEW_BACKENDS = ["model", "typesafe"] as const;
+export const REVIEW_BACKENDS = ["model", "typesafe", "cloudflare"] as const;
 /** 未配置 backend 时按对话模型审查，保持旧行为。 */
 const DEFAULT_REVIEW_BACKEND: ReviewBackend = "model";
 /** TypeSafe 模型名默认值；`typesafe/latest` 之类的别名由 TypeSafe 自行解析。 */
@@ -46,17 +47,19 @@ const META_SECTION_PREFIX = "归属";
 
 export type ReviewStatus = "passed" | "rejected" | "failed" | "skipped";
 export type ReviewTrigger = (typeof REVIEW_TRIGGERS)[number];
-/** 审查引擎：`model` 用 Pi 配置的对话模型，`typesafe` 用 TypeSafe System One 判断。 */
+/** 审查引擎：`model` 用 Pi 对话模型，`typesafe` / `cloudflare` 用 typed questions 判断。 */
 export type ReviewBackend = (typeof REVIEW_BACKENDS)[number];
 
 export interface FileEditReviewReviewerConfig {
   name: string;
-  /** `model` backend 使用，格式为 `provider/model`；`typesafe` backend 不使用。 */
+  /** `model` backend 使用，格式为 `provider/model`；判断 backend 不使用。 */
   model?: string;
   /** 审查引擎；省略时按 `model` 处理。 */
   backend?: ReviewBackend;
   /** `typesafe` backend 使用的 TypeSafe 模型名；省略时为 `jev-latest`。 */
   typesafeModel?: string;
+  /** Cloudflare Workers AI model; defaults to clef-flash. */
+  cloudflareModel?: CloudflareModel;
   /** 兼容旧配置：单个规则文件。 */
   rulesFile?: string;
   /** 新配置：一个 reviewer 一次加载多个规则文件。 */
@@ -90,7 +93,7 @@ export interface FileEditReviewRuleMetadata {
  *
  * 规则文件是引擎无关的：条款正文就是判据，`## 归属…` 这类元指令段落（标题以「归属」开头）
  * 里的编号不参与判断。
- * `group` 沿用规则文件自己的叫法（如「必须遵守 1」），所以两个后端的 finding 看起来一致。
+ * `group` 沿用规则文件自己的叫法（如「必须遵守 1」），所以各后端的 finding 看起来一致。
  */
 export interface FileEditReviewRuleClause {
   /** 判断标识，形式为 `rule_<编号>`，同一文件内唯一。 */
@@ -132,6 +135,8 @@ export interface FileEditReviewConfig {
   reviewers: FileEditReviewReviewerConfig[];
   /** TypeSafe 后端共用的连接设置。 */
   typesafe?: FileEditReviewTypeSafeConfig;
+  /** Cloudflare connection settings; tokens are supplied only through environment variables. */
+  cloudflare?: CloudflareConnection;
   timeoutSeconds: number;
   maxFileContextChars: number;
   maxRuleLines: number;
@@ -268,6 +273,17 @@ function parseTypeSafeConfig(value: unknown): FileEditReviewTypeSafeConfig | und
   };
 }
 
+function parseCloudflareConfig(value: unknown): CloudflareConnection | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  const connection: CloudflareConnection = {};
+  for (const field of ["baseUrl", "accountId", "accountIdEnv", "tokenEnv"] as const) {
+    const parsed = stringValue(source[field]);
+    if (parsed !== undefined) connection[field] = parsed;
+  }
+  return Object.keys(connection).length > 0 ? connection : undefined;
+}
+
 function normalizeReviewer(value: unknown, index: number, warnings: string[] = []): FileEditReviewReviewerConfig | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const source = value as Record<string, unknown>;
@@ -278,6 +294,7 @@ function normalizeReviewer(value: unknown, index: number, warnings: string[] = [
   }
   const model = parseModel(source.model);
   let typesafeModel: string | undefined;
+  let cloudflareModel: CloudflareModel | undefined;
   if (backend === "typesafe") {
     typesafeModel = source.typesafeModel === undefined ? DEFAULT_TYPESAFE_MODEL : stringValue(source.typesafeModel);
     if (!typesafeModel) {
@@ -285,6 +302,14 @@ function normalizeReviewer(value: unknown, index: number, warnings: string[] = [
       return undefined;
     }
     if (source.model !== undefined) warnings.push(i18n.t("modelIgnoredForTypesafe", { index }));
+  } else if (backend === "cloudflare") {
+    const selected = source.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL;
+    cloudflareModel = CLOUDFLARE_MODELS.find((entry) => entry === selected);
+    if (!cloudflareModel) {
+      warnings.push(i18n.t("invalidCloudflareModelConfig", { index }));
+      return undefined;
+    }
+    if (source.model !== undefined) warnings.push(i18n.t("modelIgnoredForCloudflare", { index }));
   } else if (!model) {
     return undefined;
   }
@@ -318,8 +343,9 @@ function normalizeReviewer(value: unknown, index: number, warnings: string[] = [
   }
   return {
     name: stringValue(source.name) ?? `reviewer-${index + 1}`,
-    // 只在 typesafe 时写入 backend，避免把旧配置改写为带显式 model backend。
-    ...(backend === "typesafe" ? { backend, typesafeModel } : { model }),
+    // 只在判断引擎时写入 backend，避免把旧配置改写为带显式 model backend。
+    ...(backend === "typesafe" ? { backend, typesafeModel }
+      : backend === "cloudflare" ? { backend, cloudflareModel } : { model }),
     ...(rulesFile ? { rulesFile } : { rulesFiles }),
     enabled: source.enabled !== false,
     filePatterns,
@@ -373,6 +399,7 @@ export function loadFileEditReviewConfig(
 
   const source = raw as Record<string, unknown>;
   const typesafe = parseTypeSafeConfig(source.typesafe);
+  const cloudflare = parseCloudflareConfig(source.cloudflare);
   const rawReviewers = Array.isArray(source.reviewers) ? source.reviewers : [];
   const reviewers: FileEditReviewReviewerConfig[] = [];
   rawReviewers.forEach((entry, index) => {
@@ -393,6 +420,7 @@ export function loadFileEditReviewConfig(
       enabled: source.enabled !== false && reviewers.some((reviewer) => reviewer.enabled !== false),
       reviewers,
       ...(typesafe ? { typesafe } : {}),
+      ...(cloudflare ? { cloudflare } : {}),
       timeoutSeconds: positiveInteger(
         source.timeoutSeconds,
         typeof source.timeoutMs === "number"
@@ -597,6 +625,9 @@ export function reviewerBackend(reviewer: FileEditReviewReviewerConfig): ReviewB
 export function reviewerModelLabel(reviewer: FileEditReviewReviewerConfig): string {
   if (reviewerBackend(reviewer) === "typesafe") {
     return `typesafe/${reviewer.typesafeModel ?? DEFAULT_TYPESAFE_MODEL}`;
+  }
+  if (reviewerBackend(reviewer) === "cloudflare") {
+    return `cloudflare/${reviewer.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL}`;
   }
   return reviewer.model ?? "unknown";
 }

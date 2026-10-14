@@ -29,7 +29,40 @@ Each reviewer picks an engine with `backend`. Omitting it keeps the original beh
 | `backend` | Who judges | Cost and latency | Result shape |
 | --- | --- | --- | --- |
 | `model` (default) | A Pi chat model reads every rule and the diff in one prompt | One chat completion per reviewer | Free-form JSON: `passed`, `summary`, `findings` |
+| `cloudflare` | Workers AI Clef Flash or Clef, using native Noul and Choice | Depends on model, state, and batches | Clause probabilities and findings with the existing thresholds |
 | `typesafe` | TypeSafe System One answers one typed question per rule in a single batched request | Measured on a 3-rule reviewer: ~1-2 s, ~1,400 input tokens, about US$0.00006 per review | A calibrated `noul` probability per rule; code applies the thresholds |
+
+### Cloudflare Clef backend
+
+Set `backend: "cloudflare"` to use Workers AI directly. `cloudflareModel` defaults to `clef-flash`; choose `clef` for the larger model. Both rule judgments (Noul) and line localization (Choice) use the selected backend and model, with the same numbered clauses, thresholds, and findings as TypeSafe. Old reviewers retain their `model` or `typesafe` behavior; there is no automatic fallback or configuration migration.
+
+```json
+{
+  "enabled": true,
+  "timeoutSeconds": 10,
+  "cloudflare": {
+    "baseUrl": "https://api.cloudflare.com/client/v4",
+    "accountIdEnv": "CLOUDFLARE_ACCOUNT_ID",
+    "tokenEnv": "CLOUDFLARE_API_TOKEN"
+  },
+  "reviewers": [{
+    "name": "code-quality",
+    "backend": "cloudflare",
+    "cloudflareModel": "clef-flash",
+    "rulesFiles": ["./rules/code-quality.md"],
+    "tools": ["edit", "write"],
+    "trigger": "after"
+  }]
+}
+```
+
+Have the trusted launcher supply `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` to the Pi process. The token needs Workers AI permissions; see [Cloudflare REST setup](https://developers.cloudflare.com/workers-ai/get-started/rest-api/). Configuration and the panel store **environment variable names**, never token values. `accountId` is an optional non-secret explicit account ID and takes precedence over `accountIdEnv`. Account IDs must be 32 hexadecimal characters. `tokenEnv` can select another variable, including the existing `CLOUDFARE_WORKER_AI_API_KEY` spelling used by some launchers. Credentials available to another plugin are not automatically available to Pi.
+
+`/config:tool-supervisor` exposes all four connection fields, backend selection, and Cloudflare model selection. Changes apply to the next matching tool call without reloading. Audit labels are `cloudflare/clef-flash` or `cloudflare/clef`. Missing credentials, failed REST envelopes (including HTTP 200 with `success: false`), malformed or incomplete answers, and invalid probabilities produce `failed`. A failure does not add a new before block; an explicit rejection blocks before execution, while after reviews keep the tool's result. Line-localization failure preserves a confirmed rule rejection and adds an audit warning.
+
+Requests use the [Clef](https://developers.cloudflare.com/workers-ai/models/clef/) / [Clef Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) REST endpoints. More than 64 questions are split into sequential batches for both judgment and localization. Invalid or long question IDs are mapped without collisions and restored before findings are produced; no clauses are dropped. For Cloudflare, `timeoutSeconds` covers judgments, localization, all batches, response reads, and retries together. Each batch allows at most three attempts for network failures or HTTP 429/500/502/503/504 with bounded backoff; explicit refusals (such as 401/403/422/451) are not retried. Parent cancellation stops subsequent requests. Responses are limited to 1 MiB; errors show HTTP status, numeric Cloudflare codes, and a safe reason rather than raw response text.
+
+`baseUrl` defaults to `https://api.cloudflare.com/client/v4`. Custom remote gateways require HTTPS without URL credentials, query, or fragment; HTTP is allowed only on loopback for tests. Redirects are rejected so Authorization is never forwarded. Clef can truncate long text state to its context window; split large changes and use `maxFileContextChars` to keep reviews focused. Deterministic local HTTP tests do not establish live model quality. Verify Noul and Choice with synthetic inputs under your authorized runtime credentials before enabling a production gate. A Bridge consuming a vendored supervisor needs its own version update, credential injection, and deployment.
 
 ### TypeSafe backend
 
@@ -140,7 +173,7 @@ Limitations worth knowing before treating a `typesafe` reviewer as a gate:
 
 - **The more specific the clause, the better the judgment.** When a probability is off, fix how the sentence is written (spell out the exemptions) rather than changing the format. Measured: "non-obvious numbers must be extracted into a semantic constant" is too subjective about "semantic", so `const fallback = 30000;` scored 0.52, while the sharp-edged "no `any`" scored 0.97.
 - **The threshold is per file.** Clause quality varies within one file, and there is no per-clause override; sharpen the clause instead.
-- **No severity levels anywhere.** Both backends block on any hit; a legacy `[error]` / `[warning]` marker in a rule file is stripped from the criterion and never changes the outcome.
+- **No severity levels anywhere.** All backends block on any hit; a legacy `[error]` / `[warning]` marker in a rule file is stripped from the criterion and never changes the outcome.
 - Line localization needs the post-edit file. A `before` review only has it for `write`, so `edit` before-reviews report rule-level issues without a line number.
 - When the diff adds more than 40 lines, localization is skipped and reported as a warning; the rule-level issues are still reported.
 - The whole post-edit file is sent as context, bounded by `maxFileContextChars`. It roughly doubles the input tokens compared with a diff-only request.
@@ -167,7 +200,7 @@ Use the interactive configuration command:
 /config:tool-supervisor
 ```
 
-It opens a settings panel: the top level holds the master switch, timeout, file-context and rule-line limits, and the TypeSafe connection, then one row per reviewer. Selecting a reviewer opens its fields (enable, name, review engine, review model, rule files, tools, trigger, condition module, file patterns) and a delete action. The review-model row opens a searchable list of the models available in this session. Every change is written to the configuration file immediately, so no `/reload` is required.
+It opens a settings panel: the top level holds the master switch, timeout, file-context and rule-line limits, and the TypeSafe and Cloudflare connections, then one row per reviewer. Selecting a reviewer opens its fields (enable, name, review engine, review model, rule files, tools, trigger, condition module, file patterns) and a delete action. The review-model row opens a searchable list of the models available in this session. Every change is written to the configuration file immediately, so no `/reload` is required.
 
 ## Configuration
 
@@ -214,16 +247,18 @@ Start from [`config.example.json`](./config.example.json):
 }
 ```
 
-Each reviewer must have either a `provider/model` reference (`model` backend) or a `typesafeModel` (`typesafe` backend), plus either `rulesFile` or `rulesFiles`. Relative rule-file and condition-module paths are resolved from the current project working directory.
+Each reviewer must have a `provider/model` reference for the `model` backend, or select `typesafe` / `cloudflare` with their backend-specific model names (defaults apply), plus either `rulesFile` or `rulesFiles`. Relative rule-file and condition-module paths are resolved from the current project working directory.
 
 | Setting | Meaning |
 | --- | --- |
 | `enabled` | Enables or disables the review layer. |
-| `timeoutSeconds` | Maximum time allowed for each reviewer model call. |
+| `timeoutSeconds` | Maximum time allowed for each reviewer model call; Cloudflare shares it across judgments, localization, batches, and retries. |
 | `maxFileContextChars` | Maximum post-edit file context sent to reviewers. The default is 50,000 characters; oversized files use bounded, explicitly marked excerpts around changed lines. |
 | `maxRuleLines` | Maximum rule-file size accepted for a single review rule. |
 | `typesafe` | Connection settings for the `typesafe` backend: `apiKey` and `endpoint`, both optional and both falling back to the matching environment variable. |
-| `backend` | `model` (default) or `typesafe`. Selects the review engine. |
+| `cloudflare` | Connection settings: `baseUrl`, optional explicit `accountId`, `accountIdEnv` (default `CLOUDFLARE_ACCOUNT_ID`), `tokenEnv` (default `CLOUDFLARE_API_TOKEN`). |
+| `cloudflareModel` | `clef-flash` (default) or `clef`, used only by `cloudflare`. |
+| `backend` | `model` (default), `typesafe`, or `cloudflare`. Selects the review engine. |
 | `typesafeModel` | TypeSafe model name used by the `typesafe` backend. Defaults to `jev-latest`. |
 | `condition` | Optional local TypeScript/ESM module path. Its default export receives the native Pi tool event, `ExtensionContext`, and `ToolConditionHelpers`; returning `false` skips this reviewer without a model call. |
 | `reviewers` | Reviewer name, model, rule files, `tools`, `trigger`, and optional condition module. Missing lifecycle fields keep the legacy `edit`/`write` + `after` behavior. |
@@ -244,7 +279,7 @@ consumers:
 
 `filePatterns` uses a simplified glob syntax: `*` does not cross `/`, `**` does, and `**/` at any position matches zero or more directory levels. Backslashes are normalized to `/`, and a leading `./` is ignored.
 
-`threshold` is an optional front matter field used only by the `typesafe` backend, defaulting to `0.85`; the `model` backend ignores it.
+`threshold` is an optional front matter field used by the `typesafe` and `cloudflare` backends, defaulting to `0.85`; the `model` backend ignores it.
 
 ### Condition modules
 
@@ -293,6 +328,7 @@ When upgrading from `pi-file-edit-review`, the extension reads the legacy config
 
 - Node.js 22 or newer.
 - A configured Pi model for each enabled `model` reviewer.
+- A Cloudflare account ID and API token supplied to the Pi process for each enabled `cloudflare` reviewer.
 - A TypeSafe API key for each enabled `typesafe` reviewer: `typesafe.apiKey` in `config.json`, or the `TYPESAFE_API_KEY` environment variable.
 - Rule files that describe the project-specific checks the reviewer should apply.
 

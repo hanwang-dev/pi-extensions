@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { createTranslator, loadCatalog } from "pi-extensions-i18n";
 import { createTwoFilesPatch } from "diff";
+import { DEFAULT_OPENAI_DECISIONS_MODEL, type OpenAiDecisionsConnection } from "./openai-decisions-client.ts";
 import { CLOUDFLARE_MODELS, DEFAULT_CLOUDFLARE_MODEL, type CloudflareConnection, type CloudflareModel } from "./cloudflare-client.ts";
 
 const i18n = createTranslator(loadCatalog(new URL("../locales/review-utils.json", import.meta.url)));
@@ -20,7 +21,7 @@ const DEFAULT_REVIEW_TOOLS = ["edit", "write"];
 const ALL_TOOLS = "*";
 const REVIEW_TRIGGERS = ["before", "after"] as const;
 const DEFAULT_REVIEW_TRIGGER: ReviewTrigger = "after";
-export const REVIEW_BACKENDS = ["model", "typesafe", "cloudflare"] as const;
+export const REVIEW_BACKENDS = ["model", "typesafe", "cloudflare", "openai-decisions"] as const;
 /** 未配置 backend 时按对话模型审查，保持旧行为。 */
 const DEFAULT_REVIEW_BACKEND: ReviewBackend = "model";
 /** TypeSafe 模型名默认值；`typesafe/latest` 之类的别名由 TypeSafe 自行解析。 */
@@ -60,6 +61,7 @@ export interface FileEditReviewReviewerConfig {
   typesafeModel?: string;
   /** Cloudflare Workers AI model; defaults to clef-flash. */
   cloudflareModel?: CloudflareModel;
+  openaiDecisionsModel?: string;
   /** 兼容旧配置：单个规则文件。 */
   rulesFile?: string;
   /** 新配置：一个 reviewer 一次加载多个规则文件。 */
@@ -137,6 +139,7 @@ export interface FileEditReviewConfig {
   typesafe?: FileEditReviewTypeSafeConfig;
   /** Cloudflare connection settings; tokens are supplied only through environment variables. */
   cloudflare?: CloudflareConnection;
+  openaiDecisions?: OpenAiDecisionsConnection;
   timeoutSeconds: number;
   maxFileContextChars: number;
   maxRuleLines: number;
@@ -284,6 +287,14 @@ function parseCloudflareConfig(value: unknown): CloudflareConnection | undefined
   return Object.keys(connection).length > 0 ? connection : undefined;
 }
 
+function parseOpenAiDecisionsConfig(value: unknown): OpenAiDecisionsConnection | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  const baseUrl = stringValue(source.baseUrl);
+  const apiKeyEnv = stringValue(source.apiKeyEnv);
+  return baseUrl || apiKeyEnv ? { ...(baseUrl ? { baseUrl } : {}), ...(apiKeyEnv ? { apiKeyEnv } : {}) } : undefined;
+}
+
 function normalizeReviewer(value: unknown, index: number, warnings: string[] = []): FileEditReviewReviewerConfig | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const source = value as Record<string, unknown>;
@@ -295,6 +306,7 @@ function normalizeReviewer(value: unknown, index: number, warnings: string[] = [
   const model = parseModel(source.model);
   let typesafeModel: string | undefined;
   let cloudflareModel: CloudflareModel | undefined;
+  let openaiDecisionsModel: string | undefined;
   if (backend === "typesafe") {
     typesafeModel = source.typesafeModel === undefined ? DEFAULT_TYPESAFE_MODEL : stringValue(source.typesafeModel);
     if (!typesafeModel) {
@@ -302,6 +314,12 @@ function normalizeReviewer(value: unknown, index: number, warnings: string[] = [
       return undefined;
     }
     if (source.model !== undefined) warnings.push(i18n.t("modelIgnoredForTypesafe", { index }));
+  } else if (backend === "openai-decisions") {
+    openaiDecisionsModel = source.openaiDecisionsModel === undefined ? DEFAULT_OPENAI_DECISIONS_MODEL : stringValue(source.openaiDecisionsModel);
+    if (!openaiDecisionsModel) {
+      warnings.push(i18n.t("invalidOpenAiDecisionsModelConfig", { index }));
+      return undefined;
+    }
   } else if (backend === "cloudflare") {
     const selected = source.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL;
     cloudflareModel = CLOUDFLARE_MODELS.find((entry) => entry === selected);
@@ -345,7 +363,8 @@ function normalizeReviewer(value: unknown, index: number, warnings: string[] = [
     name: stringValue(source.name) ?? `reviewer-${index + 1}`,
     // 只在判断引擎时写入 backend，避免把旧配置改写为带显式 model backend。
     ...(backend === "typesafe" ? { backend, typesafeModel }
-      : backend === "cloudflare" ? { backend, cloudflareModel } : { model }),
+      : backend === "cloudflare" ? { backend, cloudflareModel }
+        : backend === "openai-decisions" ? { backend, openaiDecisionsModel } : { model }),
     ...(rulesFile ? { rulesFile } : { rulesFiles }),
     enabled: source.enabled !== false,
     filePatterns,
@@ -400,6 +419,7 @@ export function loadFileEditReviewConfig(
   const source = raw as Record<string, unknown>;
   const typesafe = parseTypeSafeConfig(source.typesafe);
   const cloudflare = parseCloudflareConfig(source.cloudflare);
+  const openaiDecisions = parseOpenAiDecisionsConfig(source.openaiDecisions);
   const rawReviewers = Array.isArray(source.reviewers) ? source.reviewers : [];
   const reviewers: FileEditReviewReviewerConfig[] = [];
   rawReviewers.forEach((entry, index) => {
@@ -421,6 +441,7 @@ export function loadFileEditReviewConfig(
       reviewers,
       ...(typesafe ? { typesafe } : {}),
       ...(cloudflare ? { cloudflare } : {}),
+      ...(openaiDecisions ? { openaiDecisions } : {}),
       timeoutSeconds: positiveInteger(
         source.timeoutSeconds,
         typeof source.timeoutMs === "number"
@@ -629,6 +650,7 @@ export function reviewerModelLabel(reviewer: FileEditReviewReviewerConfig): stri
   if (reviewerBackend(reviewer) === "cloudflare") {
     return `cloudflare/${reviewer.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL}`;
   }
+  if (reviewerBackend(reviewer) === "openai-decisions") return `openai-decisions/${reviewer.openaiDecisionsModel ?? DEFAULT_OPENAI_DECISIONS_MODEL}`;
   return reviewer.model ?? "unknown";
 }
 

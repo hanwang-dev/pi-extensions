@@ -46,11 +46,28 @@
         "write"
       ],
       "trigger": "after"
+    },
+    {
+      "name": "decisions-quality",
+      "backend": "openai-decisions",
+      "openaiDecisionsModel": "gpt-6-luna",
+      "rulesFiles": [
+        "./rules/code-quality.md"
+      ],
+      "tools": [
+        "edit",
+        "write"
+      ],
+      "trigger": "after"
     }
   ],
   "cloudflare": {
     "baseUrl": "https://api.cloudflare.com/client/v4",
     "accountIdEnv": "CLOUDFLARE_ACCOUNT_ID",
     "tokenEnv": "CLOUDFLARE_API_TOKEN"
+  },
+  "openaiDecisions": {
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKeyEnv": "OPENAI_API_KEY"
   }
 }

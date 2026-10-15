@@ -348,8 +348,8 @@
     "en-US": "Review engine"
   },
   "panelDescBackend": {
-    "zh-CN": "选择对话模型、TypeSafe 或 Cloudflare Clef 判断模型；切换立即生效。",
-    "en-US": "Choose a conversation model, TypeSafe, or Cloudflare Clef decision model; changes take effect immediately."
+    "zh-CN": "选择对话模型、TypeSafe、Cloudflare Clef 或 OpenAI Decisions；切换立即生效。",
+    "en-US": "Choose a conversation model, TypeSafe, Cloudflare Clef, or OpenAI Decisions; changes take effect immediately."
   },
   "panelLabelModel": {
     "zh-CN": "审查模型",
@@ -470,5 +470,37 @@
   "panelDescCloudflareTokenEnv": {
     "zh-CN": "仅填写环境变量名，不能填写 token。留空默认 CLOUDFLARE_API_TOKEN。",
     "en-US": "Enter only the variable name, never the token. Empty defaults to CLOUDFLARE_API_TOKEN."
+  },
+  "backendOpenAiDecisions": {
+    "zh-CN": "OpenAI Decisions",
+    "en-US": "OpenAI Decisions"
+  },
+  "openaiDecisionsModelInput": {
+    "zh-CN": "Decisions 模型名称",
+    "en-US": "Decisions model name"
+  },
+  "panelLabelOpenAiDecisionsModel": {
+    "zh-CN": "Decisions 模型",
+    "en-US": "Decisions model"
+  },
+  "panelDescOpenAiDecisionsModel": {
+    "zh-CN": "原生 Decisions API 模型名称。",
+    "en-US": "Native Decisions API model name."
+  },
+  "panelLabelOpenAiDecisionsBaseUrl": {
+    "zh-CN": "Decisions 服务地址",
+    "en-US": "Decisions API URL"
+  },
+  "panelDescOpenAiDecisionsBaseUrl": {
+    "zh-CN": "API 版本前缀或完整 Decisions 地址；留空使用 OpenAI 公网服务。",
+    "en-US": "API version prefix or complete Decisions URL; unset uses the public OpenAI service."
+  },
+  "panelLabelOpenAiDecisionsApiKeyEnv": {
+    "zh-CN": "Decisions 密钥变量名",
+    "en-US": "Decisions key variable"
+  },
+  "panelDescOpenAiDecisionsApiKeyEnv": {
+    "zh-CN": "只填环境变量名，不填密钥内容；默认 OPENAI_API_KEY。",
+    "en-US": "Environment variable name only, never the key; default OPENAI_API_KEY."
   }
 }

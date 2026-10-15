@@ -201,7 +201,7 @@ test("panel edits connection, switches backend and model, and affects the next t
   }));
   // Set two connection fields in one open panel; then switch backend and choose Clef in the same reviewer page.
   const ui = createScriptedUi([
-    [...down(6), ENTER, f.baseUrl, ENTER, ...down(3), ENTER, "CF_TEST_TOKEN", ENTER, ...down(1), ENTER],
+    [...down(6), ENTER, f.baseUrl, ENTER, ...down(3), ENTER, "CF_TEST_TOKEN", ENTER, ...down(3), ENTER],
     [...down(2), ENTER, ...down(2), ENTER, ...down(1), ENTER, ...down(1), ENTER, "\u001B"],
     ["\u001B"],
   ]);

@@ -46,6 +46,8 @@ const ROOT_CONFIG_KEYS: readonly string[] = [
 	"maxRuleLines",
 	"typesafe.apiKey",
 	"typesafe.endpoint",
+	"openaiDecisions.baseUrl",
+	"openaiDecisions.apiKeyEnv",
 	"cloudflare.baseUrl",
 	"cloudflare.accountId",
 	"cloudflare.accountIdEnv",
@@ -67,6 +69,7 @@ function customConfig(): FileEditReviewConfig {
 		maxFileContextChars: 20_000,
 		maxRuleLines: 200,
 		typesafe: { apiKey: "apik-from-config", endpoint: "http://127.0.0.1:9/v1" },
+		openaiDecisions: { baseUrl: "https://gateway.example.com/v1", apiKeyEnv: "DECISION_KEY" },
 		cloudflare: { baseUrl: "https://example.com/v4", accountId: "a".repeat(32), accountIdEnv: "CF_ACCOUNT", tokenEnv: "CF_TOKEN" },
 		reviewers: [customReviewer()],
 	};
@@ -131,7 +134,7 @@ test("顶层每一行都有标题、说明和当前值", () => {
 });
 
 test("reviewer 字段页的每一行都有标题、说明和当前值", () => {
-	for (const reviewer of [customReviewer(), typesafeReviewer(), cloudflareReviewer()]) {
+	for (const reviewer of [customReviewer(), typesafeReviewer(), cloudflareReviewer(), openaiDecisionsReviewer()]) {
 		for (const item of buildReviewerItems(reviewer, MODELS)) {
 			assert.ok(item.label.length > 0, `${item.id} 没有标题`);
 			assert.ok((item.description ?? "").length > 0, `${item.id} 没有说明`);
@@ -161,7 +164,7 @@ test("取当前显示值写回，顶层每个字段都能往返一致", () => {
 });
 
 test("取当前显示值写回，reviewer 每个可编辑字段都能往返一致", () => {
-	for (const reviewer of [customReviewer(), typesafeReviewer(), cloudflareReviewer()]) {
+	for (const reviewer of [customReviewer(), typesafeReviewer(), cloudflareReviewer(), openaiDecisionsReviewer()]) {
 		for (const item of buildReviewerItems(reviewer, MODELS)) {
 			if (item.id === REVIEWER_FIELD.remove) continue;
 			const next = applyReviewerChange(reviewer, item.id, item.currentValue);
@@ -317,4 +320,21 @@ test("unset Cloudflare fields round-trip without adding configuration", () => {
   for (const row of buildRootItems({ config }).filter((row) => row.id.startsWith("cloudflare."))) {
     assert.deepEqual(applyRootChange(config, row.id, row.currentValue), config);
   }
+});
+
+function openaiDecisionsReviewer(): FileEditReviewReviewerConfig {
+  const { typesafeModel: _unused, ...reviewer } = typesafeReviewer();
+  return { ...reviewer, backend: "openai-decisions", openaiDecisionsModel: "gpt-6-luna" };
+}
+
+test("Decisions model and connection fields round-trip and backend changes remove stale model fields", () => {
+  const reviewer = applyReviewerChange(cloudflareReviewer(), REVIEWER_FIELD.backend, i18n.t("backendOpenAiDecisions"))!;
+  assert.equal(reviewer.backend, "openai-decisions");
+  assert.equal(reviewer.cloudflareModel, undefined);
+  const rows = buildReviewerItems(reviewer, MODELS);
+  assert.ok(rows.some((row) => row.id === REVIEWER_FIELD.openaiDecisionsModel));
+  assert.ok(!rows.some((row) => row.id === REVIEWER_FIELD.cloudflareModel));
+  const back = applyReviewerChange(reviewer, REVIEWER_FIELD.backend, i18n.t("backendTypesafe"));
+  assert.equal(back?.openaiDecisionsModel, undefined);
+  assert.equal(applyRootChange(customConfig(), ROOT_FIELD.openaiDecisionsApiKeyEnv, "raw key with spaces"), undefined);
 });

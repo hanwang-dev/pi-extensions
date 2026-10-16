@@ -338,3 +338,28 @@ condition 返回 `false` 时跳过该 reviewer，不读取其规则文件，也�
 [MIT](../../LICENSE)
 
 Cloudflare reviewer 还需可信运行层向 Pi 进程注入所选账号与 token 环境变量；详见上面的 Cloudflare 引擎说明。
+
+### OpenAI Decisions 引擎
+
+把 reviewer 的 `backend` 设为 `openai-decisions`，即可使用原生 Decisions API，默认模型为 `gpt-6-luna`。连接设置放在顶层 `openaiDecisions`，由所有 reviewer 共用；规则和模型仍由各 reviewer 选择。
+
+```json
+{
+  "openaiDecisions": {
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "reviewers": [{
+    "name": "decisions-quality",
+    "backend": "openai-decisions",
+    "openaiDecisionsModel": "gpt-6-luna",
+    "rulesFiles": ["./rules/code-quality.md"],
+    "tools": ["edit", "write"],
+    "trigger": "after"
+  }]
+}
+```
+
+通过 `/config:tool-supervisor` 编辑连接和审查引擎，下一次工具调用立即使用新配置，无需重新加载。`baseUrl` 接受 API 版本前缀或完整的 `/decisions` 地址，并保留自定义网关的路径前缀。`apiKeyEnv` 只填写可信启动层提供的环境变量名，不填写密钥内容。省略连接设置时使用 OpenAI 公网和 `OPENAI_API_KEY`；公共包没有公司专用网关默认值。
+
+规则判断转换成 predicate，代码行定位转换成 choice，保留原生概率。每批最多 200 道问题；批次、响应读取、重试和代码行定位共用一次审查的截止时间。临时服务错误会在预算内重试；鉴权错误、重定向、拒答和无效答案明确报告失败。响应上限为 1 MiB，错误提示不包含服务端正文。审查失败仍沿用现有行为：记录为 `failed`，不能把它当作审查通过或操作系统权限隔离。

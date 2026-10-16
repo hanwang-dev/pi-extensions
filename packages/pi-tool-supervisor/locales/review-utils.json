@@ -104,8 +104,8 @@
     "en-US": "The rule front matter threshold value {value} is invalid and the default threshold was used; it must be a number greater than 0 and at most 1."
   },
   "invalidBackendConfig": {
-    "zh-CN": "审查配置 reviewers[{index}].backend 无效，必须是 model、typesafe 或 cloudflare。",
-    "en-US": "Review configuration reviewers[{index}].backend is invalid; it must be model, typesafe, or cloudflare."
+    "zh-CN": "审查配置 reviewers[{index}].backend 无效；请选择 model、typesafe、cloudflare 或 openai-decisions。",
+    "en-US": "Review configuration reviewers[{index}].backend is invalid; choose model, typesafe, cloudflare, or openai-decisions."
   },
   "invalidTypesafeModelConfig": {
     "zh-CN": "审查配置 reviewers[{index}].typesafeModel 无效，必须是非空 TypeSafe 模型名。",
@@ -126,5 +126,9 @@
   "modelIgnoredForCloudflare": {
     "zh-CN": "reviewers[{index}] 使用 cloudflare backend，已忽略 model 字段。",
     "en-US": "reviewers[{index}] uses the cloudflare backend; the model field was ignored."
+  },
+  "invalidOpenAiDecisionsModelConfig": {
+    "zh-CN": "审查配置 reviewers[{index}].openaiDecisionsModel 无效，模型名称不能为空。",
+    "en-US": "Review configuration reviewers[{index}].openaiDecisionsModel is invalid; the model name cannot be empty."
   }
 }

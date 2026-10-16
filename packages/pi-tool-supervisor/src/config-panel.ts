@@ -31,6 +31,7 @@ import {
 	getKeybindings,
 } from "@earendil-works/pi-tui";
 import { createTranslator, loadCatalog } from "pi-extensions-i18n";
+import { DEFAULT_OPENAI_DECISIONS_MODEL } from "./openai-decisions-client.ts";
 import { CLOUDFLARE_MODELS, DEFAULT_CLOUDFLARE_MODEL } from "./cloudflare-client.ts";
 import {
 	DEFAULT_TYPESAFE_MODEL,
@@ -59,6 +60,8 @@ export const ROOT_FIELD = {
 	typesafeApiKey: "typesafe.apiKey",
 	/** TypeSafe 端点。 */
 	typesafeEndpoint: "typesafe.endpoint",
+	openaiDecisionsBaseUrl: "openaiDecisions.baseUrl",
+	openaiDecisionsApiKeyEnv: "openaiDecisions.apiKeyEnv",
 	cloudflareBaseUrl: "cloudflare.baseUrl",
 	cloudflareAccountId: "cloudflare.accountId",
 	cloudflareAccountIdEnv: "cloudflare.accountIdEnv",
@@ -80,6 +83,7 @@ export const REVIEWER_FIELD = {
 	/** TypeSafe 模型名。 */
 	typesafeModel: "typesafeModel",
 	cloudflareModel: "cloudflareModel",
+	openaiDecisionsModel: "openaiDecisionsModel",
 	/** 规则文件列表。 */
 	rulesFiles: "rulesFiles",
 	/** 工具范围。 */
@@ -117,6 +121,8 @@ export const ROOT_CONFIG_FIELD_IDS: readonly string[] = [
 	ROOT_FIELD.maxRuleLines,
 	ROOT_FIELD.typesafeApiKey,
 	ROOT_FIELD.typesafeEndpoint,
+	ROOT_FIELD.openaiDecisionsBaseUrl,
+	ROOT_FIELD.openaiDecisionsApiKeyEnv,
 	ROOT_FIELD.cloudflareBaseUrl,
 	ROOT_FIELD.cloudflareAccountId,
 	ROOT_FIELD.cloudflareAccountIdEnv,
@@ -136,6 +142,7 @@ export const REVIEWER_CONFIG_FIELD_IDS: readonly string[] = [
 	REVIEWER_FIELD.model,
 	REVIEWER_FIELD.typesafeModel,
 	REVIEWER_FIELD.cloudflareModel,
+	REVIEWER_FIELD.openaiDecisionsModel,
 	REVIEWER_FIELD.rulesFiles,
 	REVIEWER_FIELD.tools,
 	REVIEWER_FIELD.trigger,
@@ -195,7 +202,11 @@ interface ReviewerRow {
 	descriptionKey: string;
 }
 
-/** Cloudflare connection rows store configuration text, never resolved credentials. */
+/** Connection rows store configuration text, never resolved credentials. */
+const OPENAI_DECISIONS_ROOT_ROWS = [
+  { id: ROOT_FIELD.openaiDecisionsBaseUrl, field: "baseUrl", labelKey: "panelLabelOpenAiDecisionsBaseUrl", descriptionKey: "panelDescOpenAiDecisionsBaseUrl" },
+  { id: ROOT_FIELD.openaiDecisionsApiKeyEnv, field: "apiKeyEnv", labelKey: "panelLabelOpenAiDecisionsApiKeyEnv", descriptionKey: "panelDescOpenAiDecisionsApiKeyEnv" },
+] as const;
 const CLOUDFLARE_ROOT_ROWS = [
 	{ id: ROOT_FIELD.cloudflareBaseUrl, field: "baseUrl", labelKey: "panelLabelCloudflareBaseUrl", descriptionKey: "panelDescCloudflareBaseUrl" },
 	{ id: ROOT_FIELD.cloudflareAccountId, field: "accountId", labelKey: "panelLabelCloudflareAccountId", descriptionKey: "panelDescCloudflareAccountId" },
@@ -210,6 +221,7 @@ const REVIEWER_ROWS: readonly ReviewerRow[] = [
 	{ id: REVIEWER_FIELD.backend, kind: "choice", labelKey: "panelLabelBackend", descriptionKey: "panelDescBackend" },
 	{ id: REVIEWER_FIELD.model, kind: "model", backend: "model", labelKey: "panelLabelModel", descriptionKey: "panelDescModel" },
 	{ id: REVIEWER_FIELD.typesafeModel, kind: "text", backend: "typesafe", labelKey: "panelLabelTypesafeModel", descriptionKey: "panelDescTypesafeModel" },
+	{ id: REVIEWER_FIELD.openaiDecisionsModel, kind: "text", backend: "openai-decisions", labelKey: "panelLabelOpenAiDecisionsModel", descriptionKey: "panelDescOpenAiDecisionsModel" },
 	{ id: REVIEWER_FIELD.cloudflareModel, kind: "choice", backend: "cloudflare", labelKey: "panelLabelCloudflareModel", descriptionKey: "panelDescCloudflareModel" },
 	{ id: REVIEWER_FIELD.rulesFiles, kind: "textList", labelKey: "panelLabelRulesFiles", descriptionKey: "panelDescRulesFiles" },
 	{ id: REVIEWER_FIELD.tools, kind: "textList", labelKey: "panelLabelTools", descriptionKey: "panelDescTools" },
@@ -236,7 +248,7 @@ function toggleOptions(): PanelOption[] {
 /** 审查引擎候选项。 */
 function backendOptions(): PanelOption[] {
 	return BACKEND_VALUES.map((value) => ({
-		label: i18n.t(value === "cloudflare" ? "backendCloudflare" : value === "typesafe" ? "backendTypesafe" : "backendModel"),
+		label: i18n.t(value === "openai-decisions" ? "backendOpenAiDecisions" : value === "cloudflare" ? "backendCloudflare" : value === "typesafe" ? "backendTypesafe" : "backendModel"),
 		value,
 	}));
 }
@@ -317,6 +329,8 @@ function readReviewerField(reviewer: FileEditReviewReviewerConfig, id: ReviewerF
 			return reviewer.model ?? "";
 		case REVIEWER_FIELD.typesafeModel:
 			return reviewer.typesafeModel ?? "";
+		case REVIEWER_FIELD.openaiDecisionsModel:
+			return reviewer.openaiDecisionsModel ?? DEFAULT_OPENAI_DECISIONS_MODEL;
 		case REVIEWER_FIELD.cloudflareModel:
 			return reviewer.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL;
 		case REVIEWER_FIELD.condition:
@@ -393,7 +407,14 @@ export function applyReviewerChange(
 			return next;
 		case REVIEWER_FIELD.backend: {
 			const backend = optionValueFromLabel(backendOptions(), value);
-			if (backend !== "model" && backend !== "typesafe" && backend !== "cloudflare") return undefined;
+			if (backend !== "model" && backend !== "typesafe" && backend !== "cloudflare" && backend !== "openai-decisions") return undefined;
+			if (backend === "openai-decisions") {
+				next.backend = backend;
+				next.openaiDecisionsModel ??= DEFAULT_OPENAI_DECISIONS_MODEL;
+				delete next.model; delete next.typesafeModel; delete next.cloudflareModel;
+				return next;
+			}
+			delete next.openaiDecisionsModel;
 			if (backend === "cloudflare") {
 				next.backend = "cloudflare";
 				next.cloudflareModel ??= DEFAULT_CLOUDFLARE_MODEL;
@@ -425,6 +446,9 @@ export function applyReviewerChange(
 		case REVIEWER_FIELD.cloudflareModel:
 			if (!CLOUDFLARE_MODELS.includes(value as typeof DEFAULT_CLOUDFLARE_MODEL)) return undefined;
 			next.cloudflareModel = value as typeof DEFAULT_CLOUDFLARE_MODEL;
+			return next;
+		case REVIEWER_FIELD.openaiDecisionsModel:
+			next.openaiDecisionsModel = normalizeTextValue(value) || DEFAULT_OPENAI_DECISIONS_MODEL;
 			return next;
 		case REVIEWER_FIELD.typesafeModel:
 			// 「未设置」写回默认值，与面板上显示的默认值一致。
@@ -499,6 +523,16 @@ export function applyRootChange(
 			return rest;
 		}
 		return { ...config, typesafe };
+	}
+	const decisionRow = OPENAI_DECISIONS_ROOT_ROWS.find((entry) => entry.id === id);
+	if (decisionRow) {
+		const connection = { ...config.openaiDecisions };
+		const trimmed = normalizeTextValue(value);
+		if (decisionRow.field === "apiKeyEnv" && trimmed && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) return undefined;
+		if (trimmed) connection[decisionRow.field] = trimmed; else delete connection[decisionRow.field];
+		if (Object.keys(connection).length) return { ...config, openaiDecisions: connection };
+		const { openaiDecisions: _removed, ...rest } = config;
+		return rest;
 	}
 	const row = CLOUDFLARE_ROOT_ROWS.find((entry) => entry.id === id);
 	if (row) {
@@ -757,11 +791,16 @@ export function buildRootItems(options: RootItemsOptions): SettingItem[] {
 			submenu: (_current, done) => createTextSubmenu(config.cloudflare?.[row.field] ?? "", i18n.t(row.descriptionKey), done),
 		});
 	}
+	for (const row of OPENAI_DECISIONS_ROOT_ROWS) {
+		items.push({ id: row.id, label: i18n.t(row.labelKey), description: i18n.t(row.descriptionKey),
+			currentValue: config.openaiDecisions?.[row.field] || i18n.t("panelValueUnset"),
+			submenu: (_current, done) => createTextSubmenu(config.openaiDecisions?.[row.field] ?? "", i18n.t(row.descriptionKey), done) });
+	}
 	for (const reviewer of config.reviewers) {
 		items.push(actionRow({
 			id: `reviewer:${reviewer.name}`,
 			label: `${reviewer.enabled === false ? "○" : "●"} ${reviewer.name}`,
-			description: reviewerBackend(reviewer) === "cloudflare"
+			description: reviewerBackend(reviewer) === "openai-decisions" ? i18n.t("backendOpenAiDecisions") : reviewerBackend(reviewer) === "cloudflare"
 				? i18n.t("backendCloudflare")
 				: reviewerBackend(reviewer) === "typesafe"
 				? i18n.t("backendTypesafe")

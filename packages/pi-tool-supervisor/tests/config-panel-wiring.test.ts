@@ -97,7 +97,7 @@ test("删除 reviewer 先确认，确认后从配置里移除", async (t) => {
 	// 打开 2（字段页）：下移到最后的「删除此审查器」并 Enter。
 	// 打开 3（顶层）：删除后回到顶层，Esc 退出。
 	const ui = createScriptedUi([
-		[...down(10), ENTER],
+		[...down(12), ENTER],
 		[...down(9), ENTER],
 		["\u001B"],
 	]);
@@ -130,7 +130,7 @@ test("删除确认被拒绝时 reviewer 保持不变", async (t) => {
 	const commands = await loadCommands();
 
 	const ui = createScriptedUi([
-		[...down(10), ENTER],
+		[...down(12), ENTER],
 		[...down(9), ENTER],
 		// 拒绝确认后字段页重新打开，直接 Esc 退出。
 		["\u001B"],

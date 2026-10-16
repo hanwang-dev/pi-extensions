@@ -335,3 +335,28 @@ When upgrading from `pi-file-edit-review`, the extension reads the legacy config
 ## License
 
 [MIT](../../LICENSE)
+
+### OpenAI Decisions
+
+Set a reviewer's `backend` to `openai-decisions` to use the native Decisions API. The default model is `gpt-6-luna`. The connection is global to the extension configuration, while each reviewer keeps its own rules and model selection:
+
+```json
+{
+  "openaiDecisions": {
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+  "reviewers": [{
+    "name": "decisions-quality",
+    "backend": "openai-decisions",
+    "openaiDecisionsModel": "gpt-6-luna",
+    "rulesFiles": ["./rules/code-quality.md"],
+    "tools": ["edit", "write"],
+    "trigger": "after"
+  }]
+}
+```
+
+Use `/config:tool-supervisor` to edit the connection and select the backend. Changes affect the next tool call without reloading. `baseUrl` accepts an API version prefix or a complete `/decisions` URL, including a custom gateway prefix. `apiKeyEnv` names the variable supplied by the trusted launcher; never put the key itself in this field. Unset connection fields use the public OpenAI API and `OPENAI_API_KEY`. This package contains no organization-specific gateway defaults.
+
+The backend converts rule questions to predicates and line-localization questions to choices, retaining the native probabilities. Requests use batches of at most 200 questions. Batches, response reads, retries and line localization share the reviewer's deadline. Temporary service errors retry within that deadline; authentication errors, redirects, refusals and malformed answers remain explicit failures. Response bodies are bounded to 1 MiB and server error bodies are not included in notices. Existing supervisor behavior for failed reviews is unchanged: a failed model request is reported as `failed`, not as a passed review or an operating-system permission boundary.

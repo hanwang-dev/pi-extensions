@@ -62,6 +62,7 @@ import {
   type ReviewBackend,
   type ReviewTrigger,
 } from "./review-utils.ts";
+import { askOpenAiDecisions, DEFAULT_OPENAI_DECISIONS_MODEL } from "./openai-decisions-client.ts";
 import { askCloudflare, DEFAULT_CLOUDFLARE_MODEL, CLOUDFLARE_MODELS } from "./cloudflare-client.ts";
 import { askTypeSafe, type TypeSafeResponse, type TypeSafeConnection } from "./typesafe-client.ts";
 import { openSupervisorPanel } from "./config-panel.ts";
@@ -449,7 +450,11 @@ async function reviewWithJudgments(options: RunReviewerOptions): Promise<FileEdi
       model: reviewer.cloudflareModel ?? DEFAULT_CLOUDFLARE_MODEL,
       timeoutMs: Math.max(0, deadline - Date.now()), signal: context.signal,
     })
-    : askTypeSafe({ state, questions, model: typesafeModel, timeoutMs, ...connection, signal: context.signal });
+    : reviewerBackend(reviewer) === "openai-decisions"
+      ? askOpenAiDecisions({ ...config.openaiDecisions, state, questions,
+        model: reviewer.openaiDecisionsModel ?? DEFAULT_OPENAI_DECISIONS_MODEL,
+        timeoutMs: Math.max(0, deadline - Date.now()), signal: context.signal })
+      : askTypeSafe({ state, questions, model: typesafeModel, timeoutMs, ...connection, signal: context.signal });
   const state: JudgmentState = {
     tool: toolName,
     trigger,
@@ -993,7 +998,7 @@ async function askNewReviewer(
 ): Promise<FileEditReviewReviewerConfig | undefined> {
   const name = (await ctx.ui.input(i18n.t("reviewerName"), `reviewer-${reviewers.length + 1}`))?.trim();
   if (!name) return undefined;
-  const backend = await ctx.ui.select(i18n.t("backendInput"), [i18n.t("backendModel"), i18n.t("backendTypesafe"), i18n.t("backendCloudflare")]);
+  const backend = await ctx.ui.select(i18n.t("backendInput"), [i18n.t("backendModel"), i18n.t("backendTypesafe"), i18n.t("backendCloudflare"), i18n.t("backendOpenAiDecisions")]);
   if (!backend) return undefined;
   if (backend === i18n.t("backendCloudflare")) {
     const model = await ctx.ui.select(i18n.t("cloudflareModelInput"), [...CLOUDFLARE_MODELS]);
@@ -1003,6 +1008,14 @@ async function askNewReviewer(
     if (!rulesFiles) return undefined;
     return { name, backend: "cloudflare", cloudflareModel, rulesFiles, enabled: true,
       tools: [...DEFAULT_REVIEW_TOOLS], trigger: AFTER_TRIGGER };
+  }
+  if (backend === i18n.t("backendOpenAiDecisions")) {
+    const model = await ctx.ui.input(i18n.t("openaiDecisionsModelInput"), DEFAULT_OPENAI_DECISIONS_MODEL);
+    if (model === undefined) return undefined;
+    const rulesFiles = await askRuleFiles(ctx);
+    if (!rulesFiles) return undefined;
+    return { name, backend: "openai-decisions", openaiDecisionsModel: model.trim() || DEFAULT_OPENAI_DECISIONS_MODEL,
+      rulesFiles, enabled: true, tools: [...DEFAULT_REVIEW_TOOLS], trigger: AFTER_TRIGGER };
   }
   const isTypesafe = backend === i18n.t("backendTypesafe");
   if (isTypesafe) {

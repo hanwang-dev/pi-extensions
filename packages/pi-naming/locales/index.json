@@ -72,8 +72,8 @@
     "en-US": "Invalid configuration field: {field}. Check the field name, type and allowed range."
   },
   "renameDescription": {
-    "zh-CN": "统一命名 session 与允许修改的终端目标；省略名称时综合当前分支全部用户消息生成",
-    "en-US": "Name the session and allowed terminal targets; omit the name to summarize all user messages on the current branch"
+    "zh-CN": "统一命名 session 与允许修改的终端目标；省略名称时按标题配置生成",
+    "en-US": "Name the session and allowed terminal targets; omit the name to generate a title using naming settings"
   },
   "namingManualDisabled": {
     "zh-CN": "手动命名已关闭：用 /config:naming 打开「手动命名」后再试",
@@ -168,8 +168,8 @@
     "en-US": "Manual /rename"
   },
   "panelDescManualNaming": {
-    "zh-CN": "允许用 /rename 手动命名；省略名称时综合当前分支全部用户消息生成",
-    "en-US": "Allow manual naming through /rename; omitting the name summarizes all user messages on the current branch"
+    "zh-CN": "允许用 /rename 手动命名；省略名称时按标题配置生成",
+    "en-US": "Allow manual naming through /rename; omitting the name generates a title using naming settings"
   },
   "panelLabelSessionTarget": {
     "zh-CN": "命名 session",
@@ -258,5 +258,13 @@
   "panelValueUnset": {
     "zh-CN": "未设置",
     "en-US": "not set"
+  },
+  "panelLabelUsePromptAsTitle": {
+    "zh-CN": "使用提示词命名",
+    "en-US": "Use prompt as title"
+  },
+  "panelDescUsePromptAsTitle": {
+    "zh-CN": "用首条提示词和当前目录名生成标题，不调用模型",
+    "en-US": "Use the first prompt and current directory name without a model request"
   }
 }

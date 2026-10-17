@@ -4,6 +4,7 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { createModelRequester } from "pi-model-request";
+import { basename } from "node:path";
 import { i18n } from "./i18n.ts";
 import { DEFAULT_TITLE_CONFIG, type TitleConfig } from "./config.ts";
 
@@ -129,6 +130,23 @@ export function normalizeSessionName(raw: string, maxLength = DEFAULT_TITLE_CONF
 
   name = removeWrappingQuotes(name).replace(/\s+/g, " ").trim();
   return Array.from(name).slice(0, maxLength).join("").trim();
+}
+
+/** 用首条非空提示词和目录名生成标题，保留字面文本，不做模型响应格式清理。 */
+export function buildPromptSessionName(
+  userMessages: readonly string[],
+  cwd: string,
+  maxLength = DEFAULT_TITLE_CONFIG.maxLength,
+): string {
+  const singleLine = (value: string): string => value.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim();
+  const prompt = userMessages.map(singleLine).find(Boolean);
+  if (!prompt) throw new Error(i18n.t("sessionNameNoMessages"));
+  const promptPoints = Array.from(prompt);
+  const directory = Array.from(singleLine(basename(cwd) || cwd));
+  // 至少给提示词留一半空间；极短上限只显示提示词，避免目录前缀挤掉整个主题。
+  if (directory.length === 0 || maxLength < 5) return promptPoints.slice(0, maxLength).join("").trim();
+  const directoryLength = Math.min(directory.length, Math.floor((maxLength - 2) / 2));
+  return `${directory.slice(0, directoryLength).join("")}: ${promptPoints.slice(0, maxLength - directoryLength - 2).join("")}`.trim();
 }
 
 /** 调用当前 session 模型生成名称，并把鉴权、空响应和模型错误显式抛出。 */

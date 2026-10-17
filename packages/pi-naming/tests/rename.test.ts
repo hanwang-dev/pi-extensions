@@ -28,6 +28,7 @@ function harness(messages: string[] = []) {
     sendMessage: (message: { content: string }) => notices.push(message.content),
   } as unknown as ExtensionAPI;
   const ctx = {
+    cwd: "/work/project",
     hasUI: true,
     ui: { notify: (message: string) => notices.push(message) },
     sessionManager: {
@@ -46,6 +47,59 @@ function harness(messages: string[] = []) {
 
 /** 等待 fire-and-forget 命名的微任务结束，不依赖固定睡眠时长。 */
 async function flush(): Promise<void> { await new Promise<void>((resolve) => setImmediate(resolve)); }
+
+test("提示词模式自动和手动命名无需模型或鉴权，并同步所有目标", async () => {
+  for (const automatic of [true, false]) {
+    const h = harness(automatic ? [] : ["Fix the login timeout", "Continue"]);
+    await registerNaming(h.pi, parseConfig({ title: { usePromptAsTitle: true, maxLength: 60 } }), {
+      loadTerminal: async () => h.terminal,
+      requestName: async () => assert.fail("deterministic naming must not call a model"),
+    });
+    h.events.get("session_start")!({}, h.ctx);
+    if (automatic) {
+      h.events.get("input")!({ text: "Fix the login timeout", source: "interactive" }, h.ctx);
+      await flush();
+      h.events.get("input")!({ text: "Continue", source: "interactive" }, h.ctx);
+      await flush();
+    } else await h.commands.get("rename")!.handler("", h.ctx);
+    assert.equal(h.name(), "project: Fix the login timeout");
+    assert.deepEqual(h.renamed.map(([, title]) => title), [h.name(), h.name()]);
+    await h.commands.get("rename")!.handler("Explicit title", h.ctx);
+    assert.equal(h.name(), "Explicit title");
+  }
+});
+
+test("提示词命名开关可立即切换，手动命名仍只读取当前分支", async () => {
+  const h = harness(["Fix login", "Continue"]);
+  const runtime = { config: parseConfig({ title: { maxLength: 60 } }) };
+  let requests = 0;
+  await registerNaming(h.pi, runtime.config, {
+    runtime,
+    loadTerminal: async () => h.terminal,
+    requestName: async () => { requests++; return "Model title"; },
+  });
+  await h.commands.get("rename")!.handler("", h.ctx);
+  assert.equal(h.name(), "Model title");
+  runtime.config = parseConfig({ title: { usePromptAsTitle: true, maxLength: 60 } });
+  await h.commands.get("rename")!.handler("", h.ctx);
+  assert.equal(h.name(), "project: Fix login");
+  assert.equal(requests, 1);
+  runtime.config = parseConfig({ title: { maxLength: 60 } });
+  await h.commands.get("rename")!.handler("", h.ctx);
+  assert.equal(h.name(), "Model title");
+  assert.equal(requests, 2);
+});
+
+test("提示词模式没有用户文本时报告错误，保留原名称", async () => {
+  const h = harness();
+  h.pi.setSessionName("Existing");
+  await registerNaming(h.pi, parseConfig({ title: { usePromptAsTitle: true }, targets: { workspace: false, tab: false } }), {
+    requestName: async () => assert.fail("unexpected model"),
+  });
+  await h.commands.get("rename")!.handler("", h.ctx);
+  assert.equal(h.name(), "Existing");
+  assert.match(h.notices.at(-1) ?? "", /用户消息|user messages/);
+});
 
 test("只注册 /rename，显式名称同步三个目标且不调用模型", async () => {
   const h = harness();

@@ -25,6 +25,7 @@ function customConfig(): NamingConfig {
     manualNaming: false,
     targets: { session: false, workspace: false, tab: false },
     title: {
+      usePromptAsTitle: true,
       maxLength: 60,
       preferredLength: 40,
       language: "English",
@@ -43,6 +44,7 @@ const CONFIG_FIELDS: readonly string[] = [
   "targets.session",
   "targets.workspace",
   "targets.tab",
+  "title.usePromptAsTitle",
   "title.maxLength",
   "title.preferredLength",
   "title.language",
@@ -86,6 +88,9 @@ test("开关项存的是配置值，不是本地化文案", () => {
   assert.equal(off?.automaticNaming, false);
   const on = applyPanelChange(customConfig(), PANEL_FIELD.manualNaming, i18n.t("configOn"));
   assert.equal(on?.manualNaming, true);
+  const prompt = applyPanelChange(parseConfig({}), PANEL_FIELD.usePromptAsTitle, i18n.t("configOn"));
+  assert.equal(prompt?.title.usePromptAsTitle, true);
+  assert.equal(applyPanelChange(prompt!, PANEL_FIELD.usePromptAsTitle, i18n.t("configOff"))?.title.usePromptAsTitle, false);
 });
 
 test("自定义语言代码即使不在预设里也能往返", () => {

@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   buildSessionNamePrompt,
+  buildPromptSessionName,
   getSessionUserMessages,
   normalizeSessionName,
   requestSessionName,
@@ -68,6 +69,22 @@ test("normalizeSessionName 收敛模型的标题格式并限制长度", () => {
   assert.equal(normalizeSessionName("标题：  Fix timeout\n补充说明"), "Fix timeout");
   assert.equal(normalizeSessionName("- Add tests"), "Add tests");
   assert.equal(normalizeSessionName("12345678901234567890"), "123456789012345");
+});
+
+test("提示词命名保留字面文本，合并空白并使用首条非空输入和目录名", () => {
+  const messages = [" \n", '  title: "Fix\n the\t login"  ', "Continue"];
+  assert.equal(buildPromptSessionName(messages, "/work/project", 60), 'project: title: "Fix the login"');
+  assert.equal(buildPromptSessionName(messages, "/work/project/", 60), 'project: title: "Fix the login"');
+  assert.equal(buildPromptSessionName(["- Keep **Markdown**"], "/", 60), "/: - Keep **Markdown**");
+  assert.throws(() => buildPromptSessionName(["", " \n"], "/work/project"), /用户消息|user messages/);
+});
+
+test("提示词命名按 Unicode 码点限制总长度，长目录不挤掉提示词", () => {
+  assert.equal(buildPromptSessionName(["😀😀😀😀😀😀😀😀😀"], "/work/very-long-project-name", 10), "very: 😀😀😀😀");
+  assert.equal(buildPromptSessionName(["😀😀😀😀😀"], "/work/project", 4), "😀😀😀😀");
+  assert.equal(buildPromptSessionName(["Task"], "/work/project", 1), "T");
+  assert.equal(buildPromptSessionName(["Task"], "", 60), "Task");
+  assert.equal(buildPromptSessionName(["Fix\u001b\u0007\nlogin"], "/work/project", 60), "project: Fix login");
 });
 
 test("requestSessionName 使用当前模型和鉴权信息单独请求标题", async () => {

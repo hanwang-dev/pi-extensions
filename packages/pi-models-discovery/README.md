@@ -77,15 +77,22 @@ Forces a rediscovery of every discovery provider and updates the local cache, no
 - **Offline / fetch failure**: handwritten `models` in models.json (if any) are kept as a fallback, and an explicit warning is surfaced via in-session notify — never a silent degradation. One provider failing does not affect the others.
 - **apiKey resolution** (discovery request only): supports literals and `$ENV_VAR` / `${ENV_VAR}` interpolation; `!command` values skip discovery with an explicit warning (chat requests are still resolved by pi itself and are unaffected).
 - Default parameters for discovered models: `reasoning: true`, `input: ["text", "image"]`, zero cost, `contextWindow` 1M, `maxTokens` 64K, `compat.supportsDeveloperRole: false`. Provider-level `compat` is merged into every discovered model.
-- Discovered models declare `thinkingLevelMap: { xhigh: "xhigh", max: "max" }`, so `xhigh` and `max` appear in `/thinking`; the standard levels stay omitted and keep pi's provider default mapping. `/models` cannot report per-model thinking capability, so this is a blanket default for every discovered model: when a provider rejects those levels, override it per model through `modelOverrides` in models.json (set `xhigh` / `max` to `null` to hide them), or declare the model yourself in a handwritten `models` entry.
+- Discovered models default `thinkingLevelMap.xhigh` / `max` to `null`; extra tiers are no longer assumed to work on every backend. Standard tiers keep Pi's default mapping. Opt in with provider-level `compat.thinkingLevelMap` when the service supports extra tiers, or set any unsupported tier to `null`.
+- For non-reasoning models, set provider-level `compat.reasoning: false` so `/thinking` offers only `off`. `reasoning` and `thinkingLevelMap` are extracted to the model's top level; other `compat` fields (such as `supportsReasoningEffort` and `thinkingFormat`) are forwarded normally. Mixed-model gateways can use `modelOverrides` by model.id. Existing caches apply the current thinking configuration at startup without a network refresh.
+
+Example for a local non-reasoning service. To enable verified extra tiers instead, use `"thinkingLevelMap": { "xhigh": "xhigh", "max": "max" }` and remove `"reasoning": false`.
 
 ```json
 {
   "providers": {
-    "llm-proxy": {
+    "local": {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "api": "openai-completions",
       "discoverModels": true,
-      "modelOverrides": {
-        "some-model": { "thinkingLevelMap": { "xhigh": null, "max": null } }
+      "compat": {
+        "reasoning": false,
+        "supportsReasoningEffort": false,
+        "thinkingLevelMap": { "xhigh": null, "max": null }
       }
     }
   }

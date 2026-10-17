@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/maplezzk/pi-extensions/compare/pi-naming-v0.6.0...pi-naming-v0.7.0) (2026-10-17)
+
+
+### Features
+
+* **pi-naming:** add deterministic prompt titles ([b690ed8](https://github.com/maplezzk/pi-extensions/commit/b690ed8e690e46eda719aadd39bc317fdbac8b61))
+* **pi-naming:** add deterministic prompt titles ([d758347](https://github.com/maplezzk/pi-extensions/commit/d758347c1f394324bc6058260c9fccccb68ee35f))
+
 ## [0.6.0](https://github.com/maplezzk/pi-extensions/compare/pi-naming-v0.5.3...pi-naming-v0.6.0) (2026-10-05)
 
 

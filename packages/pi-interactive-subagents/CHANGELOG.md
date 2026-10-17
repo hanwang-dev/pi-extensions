@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.16.5](https://github.com/maplezzk/pi-extensions/compare/pi-interactive-subagents-v3.16.4...pi-interactive-subagents-v3.16.5) (2026-10-17)
+
+
+### Bug Fixes
+
+* **pi-interactive-subagents:** keep the UI session's ctx and agents when an in-process headless session ends ([94608dd](https://github.com/maplezzk/pi-extensions/commit/94608ddb924ecec3722fb15e5e284b21d81d99ec))
+* **pi-interactive-subagents:** only the current owner tears down shared state ([61f8514](https://github.com/maplezzk/pi-extensions/commit/61f8514783f5e3f5edc621da30ae1112edc940d1))
+
 ## [3.16.4](https://github.com/maplezzk/pi-extensions/compare/pi-interactive-subagents-v3.16.3...pi-interactive-subagents-v3.16.4) (2026-10-05)
 
 

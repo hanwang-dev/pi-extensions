@@ -15,7 +15,7 @@ pi install npm:pi-naming
 - **首条消息自动命名**：新建且未命名的 session 收到首条真实用户输入后，后台生成标题，同步允许修改的 session、workspace 和 tab。
 - **`/rename [名称]`**：显式指定名称，或省略名称、根据当前分支用户消息生成标题。与自动命名使用相同的目标配置和执行逻辑。
 - **`/config:naming`**：打开 TUI 配置面板（Pi 自带 `SettingsList`）；开关原地切换，枚举与数值回车开二级列表，自由文本回车开预填输入框。改一项立即保存并生效，不需要 `/reload`。输入 `reset` 恢复默认值。
-- 手动生成时综合当前分支的全部用户输入，围绕主要任务命名；后续明确纠正或目标变更优先，“继续”“验证一下”“提交”等流程性跟进不应盖过主题。不会读取其他分支、assistant 回复或工具输出。自动命名仍仅在首条输入时尝试一次，不随每轮对话更新。
+- 默认的模型命名模式在手动生成时综合当前分支的全部用户输入，围绕主要任务命名；后续明确纠正或目标变更优先，“继续”“验证一下”“提交”等流程性跟进不应盖过主题。不会读取其他分支、assistant 回复或工具输出。自动命名仍仅在首条输入时尝试一次，不随每轮对话更新。
 - 不覆盖已有名称的自动命名结果。手动命令优先于尚未完成的旧请求；会话切换或 reload 后丢弃旧结果和错误。
 - 各目标独立执行。终端不支持、被禁用、缺少归属信息或改名失败均明确报告，不阻止 session 和其他可用目标改名。无交互 UI 时通过 Pi 消息报告。
 
@@ -33,6 +33,7 @@ pi install npm:pi-naming
     "tab": true
   },
   "title": {
+    "usePromptAsTitle": false,
     "maxLength": 15,
     "preferredLength": 10,
     "language": "auto",
@@ -48,6 +49,7 @@ pi install npm:pi-naming
 
 | 标题字段 | 默认值 | 含义 |
 | --- | --- | --- |
+| `usePromptAsTitle` | `false` | 用首条提示词的字面文本和当前目录名生成标题，不调用模型 |
 | `maxLength` | `15` | 生成标题最大 Unicode 码点数，超出时截断 |
 | `preferredLength` | `10` | 提示模型优先采用的长度，不得超过最大长度 |
 | `language` | `"auto"` | 跟随消息主要语言，或指定 `English`、`日本語` 等 |
@@ -61,6 +63,10 @@ pi install npm:pi-naming
 `maxLength` 与 `maxTokens` 相互独立：`maxLength` 只负责截断生成的标题，`maxTokens` 只负责模型响应的预算，两者不会互相推导。推理模型的思考和标题共用这份预算，所以在推理模型上命名失败就调大 `maxTokens`，想限制成本就调小；`effort` 决定思考大概会占用多少。
 
 例如较长英文标题：`maxLength: 60`、`preferredLength: 40`、`language: "English"`。模型和鉴权直接复用 Pi 当前选择；UI 语言与标题语言独立。
+
+设置 `title.usePromptAsTitle: true`，或在 `/config:naming` 中打开「使用提示词命名」，即可使用确定性命名。自动命名使用触发它的提示词；不带名称的 `/rename` 使用当前分支首条非空用户消息。格式为 `目录名: 提示词`，例如 `project: 修复登录超时`。空白会合并为单个空格，保留字面引号、Markdown 和 `title:` 前缀。整个标题仍受 `maxLength` 的 Unicode 码点数限制：目录名最多占可用空间的一半，为提示词保留空间；上限小于 5 时只显示提示词。需要保留更长的目录名和提示词时可调大 `maxLength`。
+
+此模式不需要模型或鉴权。模型相关偏好（`preferredLength`、`language`、`instructions`、`timeoutMs`、`maxTokens`、`effort`）仅作用于模型命名。显式 `/rename 自定义标题` 仍直接使用输入名称。面板改动在下一次命名时立即生效。
 
 ## 独立使用与组合
 

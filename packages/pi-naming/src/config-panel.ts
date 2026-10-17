@@ -33,6 +33,7 @@ export const PANEL_FIELD = {
   sessionTarget: "targets.session",
   workspaceTarget: "targets.workspace",
   tabTarget: "targets.tab",
+  usePromptAsTitle: "title.usePromptAsTitle",
   maxLength: "title.maxLength",
   preferredLength: "title.preferredLength",
   language: "title.language",
@@ -81,6 +82,7 @@ const PANEL_FIELDS: readonly PanelField[] = [
   { id: PANEL_FIELD.sessionTarget, kind: "toggle", labelKey: "panelLabelSessionTarget", descriptionKey: "panelDescSessionTarget" },
   { id: PANEL_FIELD.workspaceTarget, kind: "toggle", labelKey: "panelLabelWorkspaceTarget", descriptionKey: "panelDescWorkspaceTarget" },
   { id: PANEL_FIELD.tabTarget, kind: "toggle", labelKey: "panelLabelTabTarget", descriptionKey: "panelDescTabTarget" },
+  { id: PANEL_FIELD.usePromptAsTitle, kind: "toggle", labelKey: "panelLabelUsePromptAsTitle", descriptionKey: "panelDescUsePromptAsTitle" },
   { id: PANEL_FIELD.maxLength, kind: "choice", labelKey: "panelLabelMaxLength", descriptionKey: "panelDescMaxLength" },
   { id: PANEL_FIELD.preferredLength, kind: "choice", labelKey: "panelLabelPreferredLength", descriptionKey: "panelDescPreferredLength" },
   { id: PANEL_FIELD.language, kind: "choice", labelKey: "panelLabelLanguage", descriptionKey: "panelDescLanguage" },
@@ -137,6 +139,7 @@ function fieldOptions(id: PanelFieldId, config: NamingConfig): PanelOption[] {
     case PANEL_FIELD.sessionTarget:
     case PANEL_FIELD.workspaceTarget:
     case PANEL_FIELD.tabTarget:
+    case PANEL_FIELD.usePromptAsTitle:
       return toggleOptions();
     case PANEL_FIELD.maxLength:
       return numberOptions(MAX_LENGTH_PRESETS);
@@ -181,6 +184,8 @@ function readField(config: NamingConfig, id: PanelFieldId): string {
       return config.targets.workspace ? TOGGLE_ON : TOGGLE_OFF;
     case PANEL_FIELD.tabTarget:
       return config.targets.tab ? TOGGLE_ON : TOGGLE_OFF;
+    case PANEL_FIELD.usePromptAsTitle:
+      return config.title.usePromptAsTitle ? TOGGLE_ON : TOGGLE_OFF;
     case PANEL_FIELD.maxLength:
       return String(config.title.maxLength);
     case PANEL_FIELD.preferredLength:
@@ -212,6 +217,8 @@ function writeField(config: NamingConfig, id: PanelFieldId, value: string): Nami
       return { ...config, targets: { ...config.targets, workspace: value === TOGGLE_ON } };
     case PANEL_FIELD.tabTarget:
       return { ...config, targets: { ...config.targets, tab: value === TOGGLE_ON } };
+    case PANEL_FIELD.usePromptAsTitle:
+      return { ...config, title: { ...title, usePromptAsTitle: value === TOGGLE_ON } };
     case PANEL_FIELD.maxLength:
       return { ...config, title: { ...title, maxLength: Number(value) } };
     case PANEL_FIELD.preferredLength:

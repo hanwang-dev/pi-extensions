@@ -15,7 +15,7 @@ Available through npm after publication. Run `/reload` after installation.
 - **Automatic naming**: the first real user input in a new, unnamed session generates a title in the background and applies it to the allowed session, workspace and tab targets.
 - **`/rename [name]`**: supply an explicit name, or omit it to generate one from user messages on the current branch. Uses the same targets and execution path as automatic naming.
 - **`/config:naming`**: open the TUI settings panel (Pi's `SettingsList`); toggles switch in place, enums and numbers open a submenu, free text opens a prefilled input. Every change is saved and applied immediately, no `/reload`. Use `reset` to restore defaults.
-- Manual generation considers all user input on the current branch and names the main task. Explicit later corrections or goal changes take precedence; procedural follow-ups such as “continue”, “verify”, or “commit” should not overshadow the topic. Other branches, assistant replies and tool output are excluded. Automatic naming still attempts only once on the first input, not after every turn.
+- By default, model-based manual generation considers all user input on the current branch and names the main task. Explicit later corrections or goal changes take precedence; procedural follow-ups such as “continue”, “verify”, or “commit” should not overshadow the topic. Other branches, assistant replies and tool output are excluded. Automatic naming still attempts only once on the first input, not after every turn.
 - Automatic results do not overwrite an existing name. Manual commands supersede pending requests; session switches and reloads discard old results and errors.
 - Each target is independent. Unsupported, disabled, unidentified or failed terminal targets are reported without preventing session naming or other target updates. Non-UI modes receive Pi messages instead of silent failures.
 
@@ -33,6 +33,7 @@ File: `<pi-agent-dir>/extensions/pi-naming/config.json`; respects `PI_CODING_AGE
     "tab": true
   },
   "title": {
+    "usePromptAsTitle": false,
     "maxLength": 15,
     "preferredLength": 10,
     "language": "auto",
@@ -48,6 +49,7 @@ File: `<pi-agent-dir>/extensions/pi-naming/config.json`; respects `PI_CODING_AGE
 
 | Title field | Default | Meaning |
 | --- | --- | --- |
+| `usePromptAsTitle` | `false` | Use a shortened literal first prompt and current directory name, without calling a model |
 | `maxLength` | `15` | Maximum generated Unicode code points; longer output is truncated |
 | `preferredLength` | `10` | Preferred length requested from the model; must not exceed the maximum |
 | `language` | `"auto"` | Dominant message language, or a language such as `English` or `日本語` |
@@ -61,6 +63,10 @@ Lengths, timeout and output budget must be positive safe integers; timeout must 
 `maxLength` and `maxTokens` are independent. `maxLength` only truncates the generated title; `maxTokens` only budgets the model response. Reasoning models spend that same budget on thinking and on the title, so on a reasoning model raise `maxTokens` when titles come back empty and lower it to bound cost; `effort` controls how much of the budget thinking is likely to take. No field is derived from another.
 
 For longer English titles use `maxLength: 60`, `preferredLength: 40`, `language: "English"`. Model and authentication come from Pi's current selection; title language is independent of UI language.
+
+Set `title.usePromptAsTitle: true` (or toggle **Use prompt as title** in `/config:naming`) for deterministic naming. Automatic naming uses the triggering prompt; `/rename` without a name uses the first nonempty user message on the current branch. The format is `directory: prompt`, for example `project: Fix the login timeout`. Whitespace is collapsed without stripping literal quotes, Markdown, or `title:` prefixes. The full title respects `maxLength` in Unicode code points: the directory uses at most half the available space, leaving room for the prompt; limits below 5 show only the prompt. Increase `maxLength` to preserve longer directory names and prompts.
+
+This mode needs no model or credentials. Model-specific preferences (`preferredLength`, `language`, `instructions`, `timeoutMs`, `maxTokens`, `effort`) apply only to model-based naming. Explicit `/rename My title` still uses the supplied name verbatim. Changes in the panel take effect on the next naming operation.
 
 ## Standalone and composed use
 

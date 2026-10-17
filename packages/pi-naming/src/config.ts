@@ -29,6 +29,7 @@ const NAMING_SWITCHES = ["automaticNaming", "manualNaming"] as const;
 const TARGET_KEYS = ["session", "workspace", "tab"] as const;
 
 export interface TitleConfig {
+  usePromptAsTitle: boolean;
   maxLength: number;
   preferredLength: number;
   language: string;
@@ -39,6 +40,7 @@ export interface TitleConfig {
 }
 
 export const DEFAULT_TITLE_CONFIG: Readonly<TitleConfig> = Object.freeze({
+  usePromptAsTitle: false,
   maxLength: 15,
   preferredLength: 10,
   language: "auto",
@@ -94,6 +96,10 @@ export function parseConfig(value: unknown): NamingConfig {
     if (!Object.hasOwn(DEFAULT_TITLE_CONFIG, key)) invalid(`title.${key}`);
   }
   const title: TitleConfig = { ...DEFAULT_TITLE_CONFIG };
+  if (titleRaw.usePromptAsTitle !== undefined) {
+    if (typeof titleRaw.usePromptAsTitle !== "boolean") invalid("title.usePromptAsTitle");
+    title.usePromptAsTitle = titleRaw.usePromptAsTitle;
+  }
   for (const key of ["maxLength", "preferredLength", "timeoutMs", "maxTokens"] as const) {
     if (titleRaw[key] !== undefined) title[key] = positiveInteger(titleRaw[key], `title.${key}`);
   }

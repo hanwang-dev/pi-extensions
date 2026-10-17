@@ -11,7 +11,7 @@ const NOTICE_TAG = "naming";
 const NOTICE_COLOR: NoticeColor = NOTICE_TAG_COLOR;
 /** 本扩展的提示来源。 */
 const NOTICE_SOURCE: NoticeSource = { tag: NOTICE_TAG, color: NOTICE_COLOR };
-import { getCurrentSessionUserMessages, requestSessionNameWithTimeout, type SessionNameRequester } from "./session-name.ts";
+import { buildPromptSessionName, getCurrentSessionUserMessages, requestSessionNameWithTimeout, type SessionNameRequester } from "./session-name.ts";
 
 const RENAME_COMMAND = "rename";
 const CONFIG_COMMAND_ALIASES = ["config:naming", "naming-config", "pi-naming-config"] as const;
@@ -168,10 +168,14 @@ export async function registerNaming(
     let label = automatic ? "" : args.trim();
     if (!label) {
       try {
-        label = await requestSessionNameWithTimeout({
-          userMessages: automatic ? [args] : getCurrentSessionUserMessages(ctx),
-          ctx, requestName, title: current().title,
-        });
+        const userMessages = automatic ? [args] : getCurrentSessionUserMessages(ctx);
+        const title = current().title;
+        label = title.usePromptAsTitle
+          ? buildPromptSessionName(userMessages, ctx.cwd, title.maxLength)
+          : await requestSessionNameWithTimeout({
+            userMessages,
+            ctx, requestName, title,
+          });
       } catch (error) {
         if (isCurrent()) report(pi, ctx, { message: i18n.t("namingFailed", { error: errorMessage(error) }), level: "error" });
         return;

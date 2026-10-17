@@ -35,9 +35,8 @@
  * - 注册 refreshModels：打开 /model 触发在线刷新时重新发现；
  *   离线初始化（allowNetwork=false）返回上次成功列表（含缓存），尚无成功记录时抛错，
  *   以免空列表清掉 models.json 手写 models。
- * - 发现模型默认声明 thinkingLevelMap { xhigh: "xhigh", max: "max" }，让 xhigh/max 出现在
- *   /thinking；标准档位缺省沿用 pi 的 provider 默认映射。这是对所有发现模型一刀切的默认值，
- *   上游不认这些值时用 models.json 的 provider.modelOverrides 按 model.id 覆盖。
+ * - 发现模型默认隐藏 xhigh/max；provider.compat.thinkingLevelMap 可显式开启或覆盖档位，
+ *   provider.compat.reasoning 可关闭推理；逐模型差异用 provider.modelOverrides 覆盖。
  * - 发现请求的 apiKey 解析仅支持字面量与 $ENV_VAR/${ENV_VAR} 插值；
  *   "!command" 形式的 apiKey 跳过发现（显式警告），pi 发起聊天请求时仍由 pi 自身解析。
  * - /config:model-discovery 命令对 models.json 的修改立即生效（registerProvider 运行时可直接调用）；
@@ -300,6 +299,21 @@ function resolveEnvValue(raw: string): { value: string | null; error: string | n
 	return { value, error: null };
 }
 
+/** 扩展专用的推理默认值从 compat 提取，不作为请求兼容字段转发。 */
+function modelThinking(providerCompat: Record<string, unknown> | undefined) {
+	const { reasoning, thinkingLevelMap, ...compat } = providerCompat ?? {};
+	return {
+		reasoning: typeof reasoning === "boolean" ? reasoning : true,
+		thinkingLevelMap: {
+			xhigh: null,
+			max: null,
+			...(thinkingLevelMap && typeof thinkingLevelMap === "object" && !Array.isArray(thinkingLevelMap)
+				? thinkingLevelMap as ProviderModelConfig["thinkingLevelMap"] : {}),
+		},
+		compat: { supportsDeveloperRole: false, ...compat },
+	};
+}
+
 export function buildModel(
 	id: string,
 	name: string | undefined,
@@ -310,18 +324,11 @@ export function buildModel(
 	return {
 		id,
 		name: name ?? id,
-		reasoning: true,
-		// xhigh/max 必须给非 null 值才会出现在 /thinking（缺省键等同不支持）；
-		// 标准档位保持缺省，仍走 pi 的 provider 默认映射，语义不变。
-		thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+		...modelThinking(providerCompat),
 		input: ["text", "image"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: contextWindow ?? 1_000_000,
 		maxTokens: maxTokens ?? 65_536,
-		compat: {
-			supportsDeveloperRole: false,
-			...providerCompat,
-		},
 	};
 }
 
@@ -488,6 +495,8 @@ function registerFromCache(
 	notices: Notice[],
 ): void {
 	if (!validateEntry(entry, notices)) return;
+	// 旧缓存含硬编码的 xhigh/max，启动时按当前 provider 配置重建，保持离线可用。
+	models = models.map((model) => ({ ...model, ...modelThinking(entry.compat) }));
 	const state: LastModelsState = { lastModels: models };
 	const refreshModels = createRefreshModels(entry, notices, state);
 	pi.registerProvider(entry.id, {

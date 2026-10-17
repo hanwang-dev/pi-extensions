@@ -209,15 +209,69 @@ test("context window falls back to vLLM max_model_len", async (t) => {
 	assert.deepEqual(windows, [["vllm", 200_000], ["explicit", 128_000], ["bare", 1_000_000]]);
 });
 
-test("discovered models expose xhigh and max thinking levels", () => {
+test("discovered models do not assume xhigh and max support", () => {
 	const model = buildModel("some-model", undefined, undefined, undefined, undefined) as unknown as Model<Api>;
+	assert.deepEqual(model.thinkingLevelMap, { xhigh: null, max: null });
 	assert.deepEqual(getSupportedThinkingLevels(model), [
 		"off",
 		"minimal",
 		"low",
 		"medium",
 		"high",
-		"xhigh",
-		"max",
 	]);
+});
+
+test("provider thinking overrides apply to discovery, cache and online refresh", async (t) => {
+	const h = await discoveryHarness(t);
+	await h.configure({
+		local: { ...discoveryProvider, compat: {
+			reasoning: false,
+			thinkingLevelMap: { minimal: null, high: null, xhigh: null, max: null },
+			supportsReasoningEffort: false,
+			thinkingFormat: "qwen",
+		} },
+		optIn: { ...discoveryProvider, compat: { thinkingLevelMap: { xhigh: "high", max: "max" } } },
+	});
+	for (let startup = 0; startup < 2; startup++) {
+		await h.start();
+		for (const [id, config] of h.registrations) {
+			for (const models of [config.models!, await config.refreshModels!(refreshContext(false)), await config.refreshModels!(refreshContext(true))]) {
+				const model = models[0] as unknown as Model<Api>;
+				if (id === "local") {
+					assert.equal(model.reasoning, false);
+					assert.deepEqual(getSupportedThinkingLevels(model), ["off"]);
+					assert.deepEqual(model.thinkingLevelMap, { minimal: null, high: null, xhigh: null, max: null });
+					assert.deepEqual(model.compat, { supportsDeveloperRole: false, supportsReasoningEffort: false, thinkingFormat: "qwen" });
+				} else {
+					assert.equal(model.reasoning, true);
+					assert.deepEqual(getSupportedThinkingLevels(model), ["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+					assert.deepEqual(model.thinkingLevelMap, { xhigh: "high", max: "max" });
+				}
+			}
+		}
+	}
+	assert.equal(h.requests.length, 6, "second startup must reuse the persistent cache");
+});
+
+test("legacy cached thinking defaults are corrected without network access", async (t) => {
+	const h = await discoveryHarness(t);
+	await h.configure({ foo: discoveryProvider });
+	const cacheDir = join(h.dir, "extensions", "pi-models-discovery");
+	await mkdir(cacheDir, { recursive: true });
+	await writeFile(join(cacheDir, "cache.json"), JSON.stringify({
+		version: 1,
+		providers: { foo: {
+			fingerprint: JSON.stringify([discoveryProvider.baseUrl, discoveryProvider.api, "", {}, {}]),
+			models: [{ ...buildModel("cached", "Cached", 128_000, 4096, undefined), thinkingLevelMap: { xhigh: "xhigh", max: "max" } }],
+		} },
+	}));
+	await h.start();
+	const config = h.registrations.get("foo")!;
+	for (const models of [config.models!, await config.refreshModels!(refreshContext(false))]) {
+		assert.deepEqual(models[0].thinkingLevelMap, { xhigh: null, max: null });
+		assert.equal(models[0].name, "Cached");
+		assert.equal(models[0].contextWindow, 128_000);
+		assert.equal(models[0].maxTokens, 4096);
+	}
+	assert.equal(h.requests.length, 0);
 });

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.1](https://github.com/maplezzk/pi-extensions/compare/pi-models-discovery-v1.6.0...pi-models-discovery-v1.6.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **pi-models-discovery:** read vLLM max_model_len as the context window ([a3d2f23](https://github.com/maplezzk/pi-extensions/commit/a3d2f233c6c07c78b3a7765675c782c279222302))
+* **pi-models-discovery:** read vLLM max_model_len as the context window ([147ecb8](https://github.com/maplezzk/pi-extensions/commit/147ecb8871896762c117f7518d72c4012ef9b272))
+* **pi-models-discovery:** respect provider thinking configuration ([24708fc](https://github.com/maplezzk/pi-extensions/commit/24708fce95c244f6eedd59820e485282fe6f6525))
+* **pi-models-discovery:** respect provider thinking configuration ([513e30c](https://github.com/maplezzk/pi-extensions/commit/513e30cc6636588166fa625254aa893c0b123ebf))
+
 ## [1.6.0](https://github.com/maplezzk/pi-extensions/compare/pi-models-discovery-v1.5.0...pi-models-discovery-v1.6.0) (2026-10-05)
 
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.0](https://github.com/maplezzk/pi-extensions/compare/pi-tool-supervisor-v0.10.0...pi-tool-supervisor-v0.11.0) (2026-10-17)
+
+
+### Features
+
+* **pi-tool-supervisor:** add Cloudflare Clef review backend ([9e1675f](https://github.com/maplezzk/pi-extensions/commit/9e1675f014f5c206ef31a0198ec400dbeff529a4))
+* **pi-tool-supervisor:** support Cloudflare Clef and Clef Flash ([04caabf](https://github.com/maplezzk/pi-extensions/commit/04caabf1002a8ec868a0e280b70001bd221f12fa))
+* **supervisor:** support native OpenAI Decisions reviews ([6ffbde6](https://github.com/maplezzk/pi-extensions/commit/6ffbde66700b5a5289928eff3b696b94825ad98f))
+* 支持 OpenAI Decisions 审查后端 ([d1186a2](https://github.com/maplezzk/pi-extensions/commit/d1186a2b9b86dce25cc144305e9df13714a3f811))
+
 ## [0.10.0](https://github.com/maplezzk/pi-extensions/compare/pi-tool-supervisor-v0.9.1...pi-tool-supervisor-v0.10.0) (2026-10-05)
 
 

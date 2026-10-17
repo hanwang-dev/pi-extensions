@@ -77,15 +77,22 @@ pi install npm:pi-models-discovery
 - **离线 / 拉取失败**：保留 models.json 里手写的 `models`（如有，作为回退），并通过会话内 notify 显式警告，不静默降级；单个 provider 失败不影响其他 provider。
 - **apiKey 解析**（仅发现请求）：支持字面量与 `$ENV_VAR` / `${ENV_VAR}` 插值；`!command` 形式跳过发现并显式警告（聊天请求仍由 pi 自身解析执行，不受影响）。
 - 发现的模型默认参数：`reasoning: true`、`input: ["text", "image"]`、cost 全 0、`contextWindow` 1M、`maxTokens` 64K、`compat.supportsDeveloperRole: false`；provider 级 `compat` 会合并进每个发现的模型。
-- 发现的模型声明 `thinkingLevelMap: { xhigh: "xhigh", max: "max" }`，让 `xhigh` / `max` 出现在 `/thinking`；标准档位保持缺省，仍由 pi 的 provider 默认映射决定。`/models` 无法逐个模型返回思考能力，所以这是对所有发现模型一刀切的默认值：某个 provider 拒绝这些档位时，在 models.json 的 `modelOverrides` 里按 model.id 覆盖（把 `xhigh` / `max` 置 `null` 可隐藏），或改用手写 `models` 条目自行声明。
+- 发现的模型默认将 `thinkingLevelMap.xhigh` / `max` 设为 `null`，不再假定所有后端支持这些额外档位。标准档位仍沿用 Pi 默认映射。若服务支持额外档位，可在 provider 的 `compat.thinkingLevelMap` 中显式开启，也可将任一不支持的档位置为 `null`。
+- 非推理模型可设置 provider 的 `compat.reasoning: false`，让 `/thinking` 只提供 `off`。`reasoning` 和 `thinkingLevelMap` 会提取到模型顶层，其余 `compat` 字段（如 `supportsReasoningEffort`、`thinkingFormat`）正常转发。混合模型网关可用 `modelOverrides` 按 model.id 覆盖。旧缓存会在启动时应用当前推理配置，无需联网刷新。
+
+下面是本地非推理服务的配置；若要开启已确认支持的额外档位，改用 `"thinkingLevelMap": { "xhigh": "xhigh", "max": "max" }` 并移除 `"reasoning": false`。
 
 ```json
 {
   "providers": {
-    "llm-proxy": {
+    "local": {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "api": "openai-completions",
       "discoverModels": true,
-      "modelOverrides": {
-        "some-model": { "thinkingLevelMap": { "xhigh": null, "max": null } }
+      "compat": {
+        "reasoning": false,
+        "supportsReasoningEffort": false,
+        "thinkingLevelMap": { "xhigh": null, "max": null }
       }
     }
   }

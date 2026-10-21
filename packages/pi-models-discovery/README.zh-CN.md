@@ -76,7 +76,7 @@ pi install npm:pi-models-discovery
 - **在线刷新**：`/config:model-discovery-refresh` 或 `/model` 打开时触发的 `refreshModels` 在线重新发现，并同步更新缓存。
 - **离线 / 拉取失败**：保留 models.json 里手写的 `models`（如有，作为回退），并通过会话内 notify 显式警告，不静默降级；单个 provider 失败不影响其他 provider。
 - **apiKey 解析**（仅发现请求）：支持字面量与 `$ENV_VAR` / `${ENV_VAR}` 插值；`!command` 形式跳过发现并显式警告（聊天请求仍由 pi 自身解析执行，不受影响）。
-- 发现的模型默认参数：`reasoning: true`、`input: ["text", "image"]`、cost 全 0、`contextWindow` 1M、`maxTokens` 64K、`compat.supportsDeveloperRole: false`；provider 级 `compat` 会合并进每个发现的模型。
+- 元数据缺失时，发现的模型默认参数为 `reasoning: true`、`input: ["text", "image"]`、cost 全 0、`contextWindow` 1M、`maxTokens` 64K、`compat.supportsDeveloperRole: false`。服务返回的元数据按下表替换这些默认值；provider 级 `compat` 会合并进每个发现的模型。
 - 发现的模型默认将 `thinkingLevelMap.xhigh` / `max` 设为 `null`，不再假定所有后端支持这些额外档位。标准档位仍沿用 Pi 默认映射。若服务支持额外档位，可在 provider 的 `compat.thinkingLevelMap` 中显式开启，也可将任一不支持的档位置为 `null`。
 - 非推理模型可设置 provider 的 `compat.reasoning: false`，让 `/thinking` 只提供 `off`。`reasoning` 和 `thinkingLevelMap` 会提取到模型顶层，其余 `compat` 字段（如 `supportsReasoningEffort`、`thinkingFormat`）正常转发。混合模型网关可用 `modelOverrides` 按 model.id 覆盖。旧缓存会在启动时应用当前推理配置，无需联网刷新。
 
@@ -98,9 +98,37 @@ pi install npm:pi-models-discovery
   }
 }
 ```
-- 模型元数据可携带 `name` / `context_window`（或 `contextWindow`，或 vLLM 的 `max_model_len`）/ `max_tokens`（或 `maxTokens`），缺失时用默认值。
 
 旧的 `/model-discovery`、`/model-discovery-refresh`、`/pi-model-discovery` 和 `/pi-model-discovery-refresh` 名称仍作为兼容别名保留。
+
+## 模型元数据
+
+发现流程按下表的优先级读取每个模型的元数据，使用第一个有效值：
+
+| Pi 字段 | 模型列表字段，按优先级排列 |
+| --- | --- |
+| `name` | `name`、`display_name`，最后回退到模型 ID |
+| `contextWindow` | `context_window`、`contextWindow`、`max_model_len`（vLLM）、`context_length`、`max_context_length`、`max_input_tokens`（Anthropic） |
+| `maxTokens` | `max_tokens`、`maxTokens`、`max_output_tokens`、`max_completion_tokens` |
+| `input` | 始终包含 `text`。显式包含 `text` 和/或 `image` 的 `input` 数组列出 `image` 时加入 `image`；否则看 `capabilities.vision` 或 `capabilities.image_input` 是否支持 |
+| `reasoning` | provider 的 `compat.reasoning`、模型的 `reasoning`、`capabilities.reasoning`、`capabilities.thinking` |
+
+能力字段可为布尔值或 `{ "supported": false }` 这样的对象。显式 `false` 会保留：不支持图片时使用 `input: ["text"]`，不支持推理时使用 `reasoning: false`。缓存启动和在线刷新均保留元数据。未声明的能力沿用既有默认值，插件不会推断额外思考档位。
+
+token 上限必须为正的安全整数；无效值会回退到下一个别名或既有默认值。名称必须为非空字符串；`input` 中不支持的值会被忽略。
+
+费用采用**每百万 token 的价格**，与 Pi 的 `cost` 字段一致：
+
+| Pi cost 字段 | 模型列表字段，按优先级排列 |
+| --- | --- |
+| `input` | `cost.input`、`pricing.input_per_million` |
+| `output` | `cost.output`、`pricing.output_per_million` |
+| `cacheRead` | `cost.cacheRead`、`cost.cache_read`、`pricing.cache_read_input_per_million` |
+| `cacheWrite` | `cost.cacheWrite`、`cost.cache_write`、`pricing.cache_creation_input_per_million` |
+
+仅接受有限的非负数，零是有效价格。缺失或无效价格默认使用零。其他计价单位、长上下文阶梯价和模态专用价格不会映射到这四个字段；逐模型调整可使用 `modelOverrides`。
+
+升级后运行 `/config:model-discovery-refresh`，用服务返回的元数据替换旧缓存中的默认值。
 
 ## 卸载
 

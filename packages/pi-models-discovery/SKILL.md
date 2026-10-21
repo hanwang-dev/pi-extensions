@@ -23,7 +23,11 @@ description: "配置与排查 models.json 的动态模型发现、缓存刷新�
 
 ## 思考等级
 
-发现的模型默认隐藏 `xhigh` / `max`（映射为 `null`），标准档位沿用 Pi 默认映射。provider 的 `compat.thinkingLevelMap` 可显式开启支持的档位或将不支持的档位置 `null`；非推理服务用 `compat.reasoning: false` 关闭推理，必要时配合 `compat.supportsReasoningEffort: false`。这两个扩展配置字段会提取到模型顶层，其余 compat 正常转发。逐模型差异用 `modelOverrides` 按 model.id 覆盖。旧缓存启动时会应用当前配置，无需联网刷新。
+发现的模型默认隐藏 `xhigh` / `max`（映射为 `null`），标准档位沿用 Pi 默认映射。provider 的 `compat.thinkingLevelMap` 可显式开启支持的档位或将不支持的档位置 `null`；非推理服务用 `compat.reasoning: false` 关闭推理，必要时配合 `compat.supportsReasoningEffort: false`。这两个扩展配置字段会提取到模型顶层，其余 compat 正常转发。逐模型差异用 `modelOverrides` 按 model.id 覆盖。旧缓存启动时会应用当前 compat 配置，无需联网刷新。
+
+## 模型元数据
+
+模型列表若返回名称、上下文窗口、输出上限、图片/推理能力或每百万 token 价格，发现时会自动读取，别名优先级见 README「模型元数据」表；provider 的 `compat.reasoning` 仍优先于服务声明。缺失或无效的字段沿用默认值，不要为服务已正确声明的元数据另加 `compat.reasoning` 或 `modelOverrides`。升级插件后缓存仍是旧默认值时，用 `/config:model-discovery-refresh` 重新拉取。
 
 ## 验证
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.0](https://github.com/maplezzk/pi-extensions/compare/pi-models-discovery-v1.6.1...pi-models-discovery-v1.7.0) (2026-10-24)
+
+
+### Features
+
+* **pi-models-discovery:** read advertised model metadata ([702ce19](https://github.com/maplezzk/pi-extensions/commit/702ce19d1632551648e92acfdff21883400e167d))
+* **pi-models-discovery:** read advertised model metadata ([858660e](https://github.com/maplezzk/pi-extensions/commit/858660e85ea1edb68709a052782231e14ce5f132))
+
 ## [1.6.1](https://github.com/maplezzk/pi-extensions/compare/pi-models-discovery-v1.6.0...pi-models-discovery-v1.6.1) (2026-10-17)
 
 

@@ -76,7 +76,7 @@ Forces a rediscovery of every discovery provider and updates the local cache, no
 - **Online refresh**: `/config:model-discovery-refresh`, or the `refreshModels` hook triggered when opening `/model`, rediscovers online and updates the cache.
 - **Offline / fetch failure**: handwritten `models` in models.json (if any) are kept as a fallback, and an explicit warning is surfaced via in-session notify — never a silent degradation. One provider failing does not affect the others.
 - **apiKey resolution** (discovery request only): supports literals and `$ENV_VAR` / `${ENV_VAR}` interpolation; `!command` values skip discovery with an explicit warning (chat requests are still resolved by pi itself and are unaffected).
-- Default parameters for discovered models: `reasoning: true`, `input: ["text", "image"]`, zero cost, `contextWindow` 1M, `maxTokens` 64K, `compat.supportsDeveloperRole: false`. Provider-level `compat` is merged into every discovered model.
+- When metadata is absent, discovered models default to `reasoning: true`, `input: ["text", "image"]`, zero cost, `contextWindow` 1M, `maxTokens` 64K, and `compat.supportsDeveloperRole: false`. Advertised metadata replaces these defaults as described below. Provider-level `compat` is merged into every discovered model.
 - Discovered models default `thinkingLevelMap.xhigh` / `max` to `null`; extra tiers are no longer assumed to work on every backend. Standard tiers keep Pi's default mapping. Opt in with provider-level `compat.thinkingLevelMap` when the service supports extra tiers, or set any unsupported tier to `null`.
 - For non-reasoning models, set provider-level `compat.reasoning: false` so `/thinking` offers only `off`. `reasoning` and `thinkingLevelMap` are extracted to the model's top level; other `compat` fields (such as `supportsReasoningEffort` and `thinkingFormat`) are forwarded normally. Mixed-model gateways can use `modelOverrides` by model.id. Existing caches apply the current thinking configuration at startup without a network refresh.
 
@@ -98,9 +98,37 @@ Example for a local non-reasoning service. To enable verified extra tiers instea
   }
 }
 ```
-- Model metadata may carry `name` / `context_window` (or `contextWindow`, or vLLM's `max_model_len`) / `max_tokens` (or `maxTokens`); defaults are used when absent.
 
 The old `/model-discovery`, `/model-discovery-refresh`, `/pi-model-discovery`, and `/pi-model-discovery-refresh` names remain available as compatibility aliases.
+
+## Model metadata
+
+Discovery reads each model's metadata using the following precedence (first valid value wins):
+
+| Pi field | Model-list fields, in precedence order |
+| --- | --- |
+| `name` | `name`, `display_name`, then the model ID |
+| `contextWindow` | `context_window`, `contextWindow`, `max_model_len` (vLLM), `context_length`, `max_context_length`, `max_input_tokens` (Anthropic) |
+| `maxTokens` | `max_tokens`, `maxTokens`, `max_output_tokens`, `max_completion_tokens` |
+| `input` | Always includes `text`. `image` is added when an explicit `input` array containing `text` and/or `image` lists it; otherwise when `capabilities.vision` or `capabilities.image_input` is supported |
+| `reasoning` | Provider `compat.reasoning`, model `reasoning`, `capabilities.reasoning`, `capabilities.thinking` |
+
+Capability values may be booleans or objects such as `{ "supported": false }`. Explicit `false` is preserved: no image support produces `input: ["text"]`, and no reasoning support produces `reasoning: false`. Cached startup and online refresh retain this metadata. Unknown capabilities keep the existing defaults; the extension does not infer extra thinking tiers.
+
+Token limits must be positive safe integers. Invalid limits fall through to the next alias or the existing defaults. Names must be nonempty strings; unsupported entries in `input` are ignored.
+
+Costs use **prices per one million tokens**, matching Pi's `cost` fields:
+
+| Pi cost field | Model-list fields, in precedence order |
+| --- | --- |
+| `input` | `cost.input`, `pricing.input_per_million` |
+| `output` | `cost.output`, `pricing.output_per_million` |
+| `cacheRead` | `cost.cacheRead`, `cost.cache_read`, `pricing.cache_read_input_per_million` |
+| `cacheWrite` | `cost.cacheWrite`, `cost.cache_write`, `pricing.cache_creation_input_per_million` |
+
+Only finite, nonnegative numbers are accepted; zero is a valid price. Missing or invalid prices default to zero. Prices in other units, long-context tiers, and modality-specific prices are not mapped to these four fields. Use `modelOverrides` for model-specific adjustments.
+
+After upgrading, run `/config:model-discovery-refresh` to replace older cached defaults with the advertised metadata.
 
 ## Uninstall
 

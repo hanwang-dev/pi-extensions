@@ -45,7 +45,7 @@
  *   加载期（无 ctx）产生的消息收集到 pendingNotices，session_start 时统一 flush。
  */
 
-import type { Api } from "@earendil-works/pi-ai";
+import type { Api, ModelCostRates } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -89,17 +89,15 @@ interface DiscoveryProviderEntry {
 	discoverModels?: boolean;
 }
 
-interface ModelsResponse {
-	data?: Array<{
-		id?: string;
-		name?: string;
-		context_window?: number;
-		contextWindow?: number;
-		/** vLLM reports the served context window here. */
-		max_model_len?: number;
-		max_tokens?: number;
-		maxTokens?: number;
-	}>;
+/** 模型列表条目按别名归一后的元数据；缺失字段由 buildModel 补默认值。 */
+export interface ModelMetadata {
+	id: string;
+	name?: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	input?: ProviderModelConfig["input"];
+	reasoning?: boolean;
+	cost?: Partial<ModelCostRates>;
 }
 
 /** 持久化缓存中单个 provider 的条目 */
@@ -299,36 +297,88 @@ function resolveEnvValue(raw: string): { value: string | null; error: string | n
 	return { value, error: null };
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 /** 扩展专用的推理默认值从 compat 提取，不作为请求兼容字段转发。 */
-function modelThinking(providerCompat: Record<string, unknown> | undefined) {
+function modelThinking(providerCompat: Record<string, unknown> | undefined, discoveredReasoning?: boolean) {
 	const { reasoning, thinkingLevelMap, ...compat } = providerCompat ?? {};
 	return {
-		reasoning: typeof reasoning === "boolean" ? reasoning : true,
+		reasoning: typeof reasoning === "boolean" ? reasoning : (discoveredReasoning ?? true),
 		thinkingLevelMap: {
 			xhigh: null,
 			max: null,
-			...(thinkingLevelMap && typeof thinkingLevelMap === "object" && !Array.isArray(thinkingLevelMap)
-				? thinkingLevelMap as ProviderModelConfig["thinkingLevelMap"] : {}),
+			...(asRecord(thinkingLevelMap) as ProviderModelConfig["thinkingLevelMap"]),
 		},
 		compat: { supportsDeveloperRole: false, ...compat },
 	};
 }
 
-export function buildModel(
-	id: string,
-	name: string | undefined,
-	contextWindow: number | undefined,
-	maxTokens: number | undefined,
-	providerCompat: Record<string, unknown> | undefined,
-): ProviderModelConfig {
+function nonEmptyString(...values: unknown[]): string | undefined {
+	return values.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function positiveTokenLimit(...values: unknown[]): number | undefined {
+	return values.find((value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0);
+}
+
+function nonNegativeCost(...values: unknown[]): number | undefined {
+	return values.find((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+}
+
+function capabilitySupported(value: unknown): boolean | undefined {
+	const supported = typeof value === "boolean" ? value : asRecord(value).supported;
+	return typeof supported === "boolean" ? supported : undefined;
+}
+
+/** 聊天模型始终接受 text；显式 input 数组或 vision 能力只决定是否加上 image。 */
+function modelInput(input: unknown, capabilities: Record<string, unknown>): ProviderModelConfig["input"] | undefined {
+	const image = Array.isArray(input) && (input.includes("text") || input.includes("image"))
+		? input.includes("image")
+		: capabilitySupported(capabilities.vision) ?? capabilitySupported(capabilities.image_input);
+	return image === undefined ? undefined : image ? ["text", "image"] : ["text"];
+}
+
+/** 按 README「模型元数据」表的别名优先级归一单个模型列表条目；无有效 id 时返回 undefined。 */
+function canonicalizeModel(value: unknown): ModelMetadata | undefined {
+	const raw = asRecord(value);
+	if (typeof raw.id !== "string" || raw.id.length === 0) return undefined;
+	const capabilities = asRecord(raw.capabilities);
+	const cost = asRecord(raw.cost);
+	const pricing = asRecord(raw.pricing);
 	return {
-		id,
-		name: name ?? id,
-		...modelThinking(providerCompat),
-		input: ["text", "image"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: contextWindow ?? 1_000_000,
-		maxTokens: maxTokens ?? 65_536,
+		id: raw.id,
+		name: nonEmptyString(raw.name, raw.display_name),
+		contextWindow: positiveTokenLimit(raw.context_window, raw.contextWindow, raw.max_model_len, raw.context_length, raw.max_context_length, raw.max_input_tokens),
+		maxTokens: positiveTokenLimit(raw.max_tokens, raw.maxTokens, raw.max_output_tokens, raw.max_completion_tokens),
+		input: modelInput(raw.input, capabilities),
+		reasoning: capabilitySupported(raw.reasoning)
+			?? capabilitySupported(capabilities.reasoning)
+			?? capabilitySupported(capabilities.thinking),
+		cost: {
+			input: nonNegativeCost(cost.input, pricing.input_per_million),
+			output: nonNegativeCost(cost.output, pricing.output_per_million),
+			cacheRead: nonNegativeCost(cost.cacheRead, cost.cache_read, pricing.cache_read_input_per_million),
+			cacheWrite: nonNegativeCost(cost.cacheWrite, cost.cache_write, pricing.cache_creation_input_per_million),
+		},
+	};
+}
+
+export function buildModel(model: ModelMetadata, providerCompat?: Record<string, unknown>): ProviderModelConfig {
+	return {
+		id: model.id,
+		name: model.name ?? model.id,
+		...modelThinking(providerCompat, model.reasoning),
+		input: model.input ?? ["text", "image"],
+		cost: {
+			input: model.cost?.input ?? 0,
+			output: model.cost?.output ?? 0,
+			cacheRead: model.cost?.cacheRead ?? 0,
+			cacheWrite: model.cost?.cacheWrite ?? 0,
+		},
+		contextWindow: model.contextWindow ?? 1_000_000,
+		maxTokens: model.maxTokens ?? 65_536,
 	};
 }
 
@@ -376,19 +426,12 @@ async function fetchModels(
 	if (!response.ok) {
 		throw new Error(i18n.t("fetchHttpError", { url, status: response.status }));
 	}
-	const payload = (await response.json()) as ModelsResponse | Array<ModelsResponse["data"] extends (infer T)[] ? T : never>;
-	const entries = Array.isArray(payload) ? payload : (payload.data ?? []);
-	const models = entries
-		.filter((m): m is typeof m & { id: string } => typeof m?.id === "string" && m.id.length > 0)
-		.map((m) =>
-			buildModel(
-				m.id,
-				m.name,
-				m.context_window ?? m.contextWindow ?? m.max_model_len,
-				m.max_tokens ?? m.maxTokens,
-				entry.compat,
-			),
-		);
+	const payload: unknown = await response.json();
+	const entries = Array.isArray(payload) ? payload : asRecord(payload).data;
+	const models = (Array.isArray(entries) ? entries : [])
+		.map(canonicalizeModel)
+		.filter((model) => model !== undefined)
+		.map((model) => buildModel(model, entry.compat));
 	if (models.length === 0) {
 		throw new Error(i18n.t("emptyModelList", { url }));
 	}
@@ -496,7 +539,10 @@ function registerFromCache(
 ): void {
 	if (!validateEntry(entry, notices)) return;
 	// 旧缓存含硬编码的 xhigh/max，启动时按当前 provider 配置重建，保持离线可用。
-	models = models.map((model) => ({ ...model, ...modelThinking(entry.compat) }));
+	models = models.map((model) => ({
+		...model,
+		...modelThinking(entry.compat, typeof model?.reasoning === "boolean" ? model.reasoning : undefined),
+	}));
 	const state: LastModelsState = { lastModels: models };
 	const refreshModels = createRefreshModels(entry, notices, state);
 	pi.registerProvider(entry.id, {

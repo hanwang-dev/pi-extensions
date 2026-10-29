@@ -105,13 +105,13 @@ test("开关与枚举写回的是机器值，不是本地化文案", () => {
 
 test("逐模型协议可编辑、清除，且非默认映射能往返一致", () => {
 	const provider = customProvider();
-	const mapped = applyProviderChange(provider, PROVIDER_FIELD.modelApis, '{"code":"openai-responses"}')!;
-	assert.deepEqual(mapped.modelApis, { code: "openai-responses" });
+	const mapped = applyProviderChange(provider, PROVIDER_FIELD.modelApis, '{"model-a":"openai-responses"}')!;
+	assert.deepEqual(mapped.modelApis, { "model-a": "openai-responses" });
 	const row = buildProviderItems(mapped).find((item) => item.id === PROVIDER_FIELD.modelApis)!;
 	assert.deepEqual(applyProviderChange(mapped, row.id, row.currentValue), mapped);
 	assert.deepEqual(applyProviderChange(mapped, row.id, "{}"), provider);
 	assert.deepEqual(applyProviderChange(mapped, row.id, ""), provider);
-	for (const invalid of ['{"code":null}', '{"code":""}', '[]', 'null', '{broken']) {
+	for (const invalid of ['{"model-a":null}', '{"model-a":""}', '[]', 'null', '{broken']) {
 		assert.equal(applyProviderChange(mapped, row.id, invalid), undefined);
 	}
 });
@@ -129,9 +129,9 @@ test("逐模型协议输入错误留在编辑器并展示校验消息", () => {
 	assert.ok(submenu.render(120).join("\n").includes("modelApis"));
 	submenu.handleInput!("\u0001");
 	submenu.handleInput!("\u000b");
-	submenu.handleInput!('{"code":"openai-responses"}');
+	submenu.handleInput!('{"model-a":"openai-responses"}');
 	submenu.handleInput!("\r");
-	assert.equal(submitted, '{"code":"openai-responses"}');
+	assert.equal(submitted, '{"model-a":"openai-responses"}');
 });
 
 test("文本字段写回前去掉首尾空白", () => {

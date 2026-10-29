@@ -66,6 +66,8 @@ Hand edits require `/reload` to take effect; changes made through `/config:model
 
 Discovery does not probe which wire protocols a model supports. The provider's `api` remains the default. Set `modelApis` to select another API for specific, verified model IDs without adding another provider or changing the model ID sent upstream:
 
+This is a general Pi API override: it works with any provider default and any API registered in Pi, including extension-defined APIs. The model names below are placeholders, not built-in groups or routing rules. Configure only protocols actually served by that provider for each model.
+
 ```json
 {
   "providers": {
@@ -75,17 +77,16 @@ Discovery does not probe which wire protocols a model supports. The provider's `
       "api": "openai-completions",
       "discoverModels": true,
       "modelApis": {
-        "code": "openai-responses",
-        "default": "openai-responses",
-        "strong": "openai-responses",
-        "exec": "openai-responses"
+        "model-a": "openai-responses",
+        "model-b": "anthropic-messages",
+        "model-c": "google-generative-ai"
       }
     }
   }
 }
 ```
 
-Keys match exact model IDs, including case; there are no wildcards or brand-based rules. Unmatched models use the provider's `api`. Mapping a missing ID does not create a model. For example, `/model` still has one `my-proxy/code` entry and sends `model: "code"`, using Responses. `modelApis` must be an object with nonempty model IDs and nonempty API strings; API identifiers may include custom APIs registered by other extensions. Invalid mappings skip discovery registration with a warning rather than silently selecting another protocol.
+Keys match exact model IDs, including case; there are no wildcards or brand-based rules. Unmatched models use the provider's `api`. Mapping a missing ID does not create a model. For example, `/model` still has one `my-proxy/model-a` entry and sends `model: "model-a"`, using Responses. `modelApis` must be an object with nonempty model IDs and nonempty API strings; API identifiers may include custom APIs registered by other extensions. Invalid mappings skip discovery registration with a warning rather than silently selecting another protocol.
 
 First discovery, cached startup, offline initialization, `/model` online refresh, and the explicit refresh command all apply the same mapping. The persistent cache and shared discovery-request cache store the catalog without these overrides. Changing or removing `modelApis` reuses the catalog and applies the current configuration, so old protocol choices do not survive in cached models. `modelApis` does not invalidate the catalog fingerprint or prevent providers from sharing one catalog request.
 

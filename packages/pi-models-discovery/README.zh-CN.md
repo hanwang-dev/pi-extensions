@@ -66,6 +66,8 @@ pi install npm:pi-models-discovery
 
 自动发现不探测模型支持哪种协议；provider 的 `api` 仍是默认值。用 `modelApis` 为已验证的模型 ID 指定其他协议，无需新增 provider，也不改变发给上游的模型 ID：
 
+这是通用的 Pi API 覆盖功能，适用于任意 provider 默认协议及 Pi 中已注册的协议，也包括扩展提供的自定义 API。下例模型名都是占位示例，不是内置分组或路由规则；每个模型应配置该 provider 实际提供的协议。
+
 ```json
 {
   "providers": {
@@ -75,17 +77,16 @@ pi install npm:pi-models-discovery
       "api": "openai-completions",
       "discoverModels": true,
       "modelApis": {
-        "code": "openai-responses",
-        "default": "openai-responses",
-        "strong": "openai-responses",
-        "exec": "openai-responses"
+        "model-a": "openai-responses",
+        "model-b": "anthropic-messages",
+        "model-c": "google-generative-ai"
       }
     }
   }
 }
 ```
 
-键按模型 ID 精确匹配、区分大小写，不支持通配符，也不按模型品牌猜测能力。未匹配的模型沿用 provider 的 `api`；映射不存在的 ID 不会创建模型。例如 `/model` 中仍只有一个 `my-proxy/code`，请求的 `model` 仍为 `code`，协议为 Responses。`modelApis` 必须是非空模型 ID 到非空 API 字符串的对象；API 标识也可使用其他扩展注册的自定义协议。无效映射会明确警告并跳过发现注册，不静默改用另一协议。
+键按模型 ID 精确匹配、区分大小写，不支持通配符，也不按模型品牌猜测能力。未匹配的模型沿用 provider 的 `api`；映射不存在的 ID 不会创建模型。例如 `/model` 中仍只有一个 `my-proxy/model-a`，请求的 `model` 仍为 `model-a`，协议为 Responses。`modelApis` 必须是非空模型 ID 到非空 API 字符串的对象；API 标识也可使用其他扩展注册的自定义协议。无效映射会明确警告并跳过发现注册，不静默改用另一协议。
 
 首次发现、缓存启动、离线初始化、打开 `/model` 的在线刷新和显式刷新命令都应用同一映射。持久化缓存与共享发现请求缓存只保存没有协议覆盖的模型目录。修改或移除 `modelApis` 时复用目录、重新应用当前配置，旧协议不会残留在缓存模型中。`modelApis` 不改变目录指纹，也不妨碍多个 provider 共用一次目录请求。
 

@@ -77,9 +77,9 @@ const discoveryProvider = {
 };
 
 test("modelApis applies on discovery, cached startup, offline refresh and online refresh", async (t) => {
-	const h = await discoveryHarness(t, [{ id: "code" }, { id: "default" }, { id: "new-model" }]);
-	await h.configure({ foo: { ...discoveryProvider, modelApis: { code: "openai-responses", default: "anthropic-messages" } } });
-	const expected = [["code", "openai-responses"], ["default", "anthropic-messages"], ["new-model", "openai-completions"]];
+	const h = await discoveryHarness(t, [{ id: "model-a" }, { id: "model-b" }, { id: "new-model" }]);
+	await h.configure({ foo: { ...discoveryProvider, modelApis: { "model-a": "openai-responses", "model-b": "anthropic-messages" } } });
+	const expected = [["model-a", "openai-responses"], ["model-b", "anthropic-messages"], ["new-model", "openai-completions"]];
 	const apis = (models: Parameters<ExtensionAPI["registerProvider"]>[1]["models"]) => models?.map((m) => [m.id, m.api]);
 	await h.start();
 	assert.deepEqual(apis(h.registrations.get("foo")!.models), expected);
@@ -100,70 +100,96 @@ test("modelApis applies on discovery, cached startup, offline refresh and online
 });
 
 test("modelApis changes and removals reuse cached catalog without retaining old overrides", async (t) => {
-	const h = await discoveryHarness(t, [{ id: "code" }, { id: "constructor" }]);
-	for (const modelApis of [{ code: "openai-responses" }, { code: "custom-api" }, {}, undefined]) {
+	const h = await discoveryHarness(t, [{ id: "model-a" }, { id: "constructor" }]);
+	for (const modelApis of [{ "model-a": "openai-responses" }, { "model-a": "custom-api" }, {}, undefined]) {
 		await h.configure({ foo: { ...discoveryProvider, modelApis } });
 		await h.start();
 		assert.equal(h.requests.length, 1);
 		assert.deepEqual(h.registrations.get("foo")!.models?.map((m) => [m.id, m.api]), [
-			["code", modelApis?.code ?? "openai-completions"], ["constructor", "openai-completions"],
+			["model-a", modelApis?.["model-a"] ?? "openai-completions"], ["constructor", "openai-completions"],
 		]);
 	}
 });
 
 test("shared discovery requests keep each provider's modelApis independent and match exact IDs", async (t) => {
-	const h = await discoveryHarness(t, [{ id: "code" }, { id: "code-large" }]);
+	const h = await discoveryHarness(t, [{ id: "model-a" }, { id: "model-a-large" }]);
 	await h.configure({
-		foo: { ...discoveryProvider, modelApis: { code: "openai-responses", missing: "custom-api" } },
-		bar: { ...discoveryProvider, modelApis: { code: "anthropic-messages" } },
+		foo: { ...discoveryProvider, modelApis: { "model-a": "openai-responses", missing: "custom-api" } },
+		bar: { ...discoveryProvider, modelApis: { "model-a": "anthropic-messages" } },
 		plain: discoveryProvider,
 	});
 	await h.start();
 	assert.equal(h.requests.length, 1);
 	for (const [id, api] of [["foo", "openai-responses"], ["bar", "anthropic-messages"], ["plain", "openai-completions"]]) {
 		assert.deepEqual(h.registrations.get(id)!.models?.map((m) => [m.id, m.api]), [
-			["code", api], ["code-large", "openai-completions"],
+			["model-a", api], ["model-a-large", "openai-completions"],
 		]);
 	}
 });
 
 test("invalid modelApis never registers a silently downgraded provider", async (t) => {
 	const h = await discoveryHarness(t);
-	await h.configure(Object.fromEntries([null, [], "openai-responses", { code: "" }, { code: 42 }, { "": "api" }]
+	await h.configure(Object.fromEntries([null, [], "openai-responses", { "model-a": "" }, { "model-a": 42 }, { "": "api" }]
 		.map((modelApis, index) => [`bad-${index}`, { ...discoveryProvider, modelApis }])));
 	await h.start();
 	assert.equal(h.registrations.size, 0);
 	assert.equal(h.requests.length, 0);
 });
 
+test("modelApis works with any provider default and built-in or custom API overrides", async (t) => {
+	const h = await discoveryHarness(t, [{ id: "vendor/model-v2" }, { id: "Model-Unmapped" }]);
+	const cases = [
+		["openai-completions", "anthropic-messages"],
+		["anthropic-messages", "google-generative-ai"],
+		["google-generative-ai", "openai-responses"],
+		["openai-responses", "openai-completions"],
+		["custom-default-api", "custom-override-api"],
+	];
+	await h.configure(Object.fromEntries(cases.map(([api, override], i) => [`provider-${i}`, {
+		...discoveryProvider, api, modelApis: { "vendor/model-v2": override, "model-unmapped": override },
+	}])));
+	await h.start();
+	assert.equal(h.requests.length, 1);
+	for (const [i, [api, override]] of cases.entries()) {
+		const config = h.registrations.get(`provider-${i}`)!;
+		assert.equal(config.api, api);
+		assert.deepEqual(config.models?.map((m) => [m.id, m.api]), [
+			["vendor/model-v2", override], ["Model-Unmapped", api],
+		]);
+		assert.deepEqual((await config.refreshModels!(refreshContext(false))).map((m) => [m.id, m.api]), [
+			["vendor/model-v2", override], ["Model-Unmapped", api],
+		]);
+	}
+});
+
 test("panel modelApis edit persists immediately and reuses cached catalog", async (t) => {
 	initTheme("dark");
-	const h = await discoveryHarness(t, [{ id: "code" }]);
+	const h = await discoveryHarness(t, [{ id: "model-a" }]);
 	await h.configure({ foo: { ...discoveryProvider, compat: { supportsStore: false } } });
 	await h.start();
-	const ui = createScriptedUi([[ENTER], [...down(4), ENTER, "\u0001", "\u000b", '{"code":"openai-responses"}', ENTER, "\u001B"]]);
+	const ui = createScriptedUi([[ENTER], [...down(4), ENTER, "\u0001", "\u000b", '{"model-a":"openai-responses"}', ENTER, "\u001B"]]);
 	await h.commands.get("config:model-discovery")!.handler("", {
 		hasUI: true, ui: { custom: ui.custom, notify: () => {} },
 	} as unknown as Parameters<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>[1]);
 	const saved = JSON.parse(await readFile(join(h.dir, "models.json"), "utf8"));
-	assert.deepEqual(saved.providers.foo.modelApis, { code: "openai-responses" });
+	assert.deepEqual(saved.providers.foo.modelApis, { "model-a": "openai-responses" });
 	assert.deepEqual(saved.providers.foo.compat, { supportsStore: false });
 	assert.equal(h.requests.length, 1, "mapping edit must not fetch the catalog again");
 	assert.equal(h.registrations.get("foo")!.models?.[0].api, "openai-responses");
 });
 
 test("Pi runtime accepts discovery configuration and per-model API registrations", async (t) => {
-	const h = await discoveryHarness(t, [{ id: "code" }, { id: "other" }]);
+	const h = await discoveryHarness(t, [{ id: "model-a" }, { id: "model-unmapped" }]);
 	await h.configure({ foo: { ...discoveryProvider, baseUrl: "https://api.example.com/v1",
-		modelApis: { code: "openai-responses" } } });
+		modelApis: { "model-a": "openai-responses" } } });
 	await h.start();
 	const runtime = await ModelRuntime.create({ modelsPath: join(h.dir, "models.json"),
 		authPath: join(h.dir, "auth.json"), modelsStorePath: join(h.dir, "catalog.json"), refreshOnCreate: false });
 	assert.equal(runtime.getError(), undefined);
 	runtime.registerProvider("foo", h.registrations.get("foo")!);
-	assert.equal(runtime.getModel("foo", "code")?.api, "openai-responses");
-	assert.equal(runtime.getModel("foo", "other")?.api, "openai-completions");
-	assert.equal(runtime.getModel("foo", "code")?.id, "code");
+	assert.equal(runtime.getModel("foo", "model-a")?.api, "openai-responses");
+	assert.equal(runtime.getModel("foo", "model-unmapped")?.api, "openai-completions");
+	assert.equal(runtime.getModel("foo", "model-a")?.id, "model-a");
 	const requests: Array<[string, string]> = [];
 	t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
 		const path = new URL(url).pathname;
@@ -177,13 +203,13 @@ test("Pi runtime accepts discovery configuration and per-model API registrations
 		return new Response(`data: ${JSON.stringify(event)}\n\n${path.endsWith("/responses") ? "" : "data: [DONE]\n\n"}`,
 			{ headers: { "content-type": "text/event-stream" } });
 	});
-	for (const id of ["code", "other"]) {
+	for (const id of ["model-a", "model-unmapped"]) {
 		const result = await runtime.completeSimple(runtime.getModel("foo", id)!, {
 			messages: [{ role: "user", content: "synthetic", timestamp: 0 }],
 		}, { apiKey: "synthetic", maxRetries: 0 });
 		assert.equal(result.stopReason, "stop", result.errorMessage);
 	}
-	assert.deepEqual(requests, [["/v1/responses", "code"], ["/v1/chat/completions", "other"]]);
+	assert.deepEqual(requests, [["/v1/responses", "model-a"], ["/v1/chat/completions", "model-unmapped"]]);
 });
 
 test("discovery defaults to baseUrl/models when modelsUrl is absent or empty", async (t) => {

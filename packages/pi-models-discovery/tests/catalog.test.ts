@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { initTheme, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import discoveryExtension, { buildModel } from "../src/index.ts";
+import { createScriptedUi, down, ENTER } from "./panel-driver.ts";
 
 test("locales catalog provides zh-CN and en-US for every key", () => {
 	const catalog = JSON.parse(
@@ -74,6 +75,116 @@ const discoveryProvider = {
 	api: "openai-completions",
 	discoverModels: true,
 };
+
+test("modelApis applies on discovery, cached startup, offline refresh and online refresh", async (t) => {
+	const h = await discoveryHarness(t, [{ id: "code" }, { id: "default" }, { id: "new-model" }]);
+	await h.configure({ foo: { ...discoveryProvider, modelApis: { code: "openai-responses", default: "anthropic-messages" } } });
+	const expected = [["code", "openai-responses"], ["default", "anthropic-messages"], ["new-model", "openai-completions"]];
+	const apis = (models: Parameters<ExtensionAPI["registerProvider"]>[1]["models"]) => models?.map((m) => [m.id, m.api]);
+	await h.start();
+	assert.deepEqual(apis(h.registrations.get("foo")!.models), expected);
+	assert.equal(h.requests.length, 1);
+	const cache = JSON.parse(await readFile(join(h.dir, "extensions/pi-models-discovery/cache.json"), "utf8"));
+	assert.ok(cache.providers.foo.models.every((model: { api?: string }) => model.api === undefined));
+	await h.start();
+	assert.equal(h.requests.length, 1, "cache startup must not fetch");
+	const config = h.registrations.get("foo")!;
+	assert.deepEqual(apis(config.models), expected);
+	assert.deepEqual(apis(await config.refreshModels!(refreshContext(false))), expected);
+	assert.deepEqual(apis(await config.refreshModels!(refreshContext(true))), expected);
+	assert.equal(h.requests.length, 2);
+	await h.commands.get("config:model-discovery-refresh")!.handler("", {
+		hasUI: true, ui: { notify: () => {} },
+	} as unknown as Parameters<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>[1]);
+	assert.deepEqual(apis(h.registrations.get("foo")!.models), expected);
+});
+
+test("modelApis changes and removals reuse cached catalog without retaining old overrides", async (t) => {
+	const h = await discoveryHarness(t, [{ id: "code" }, { id: "constructor" }]);
+	for (const modelApis of [{ code: "openai-responses" }, { code: "custom-api" }, {}, undefined]) {
+		await h.configure({ foo: { ...discoveryProvider, modelApis } });
+		await h.start();
+		assert.equal(h.requests.length, 1);
+		assert.deepEqual(h.registrations.get("foo")!.models?.map((m) => [m.id, m.api]), [
+			["code", modelApis?.code ?? "openai-completions"], ["constructor", "openai-completions"],
+		]);
+	}
+});
+
+test("shared discovery requests keep each provider's modelApis independent and match exact IDs", async (t) => {
+	const h = await discoveryHarness(t, [{ id: "code" }, { id: "code-large" }]);
+	await h.configure({
+		foo: { ...discoveryProvider, modelApis: { code: "openai-responses", missing: "custom-api" } },
+		bar: { ...discoveryProvider, modelApis: { code: "anthropic-messages" } },
+		plain: discoveryProvider,
+	});
+	await h.start();
+	assert.equal(h.requests.length, 1);
+	for (const [id, api] of [["foo", "openai-responses"], ["bar", "anthropic-messages"], ["plain", "openai-completions"]]) {
+		assert.deepEqual(h.registrations.get(id)!.models?.map((m) => [m.id, m.api]), [
+			["code", api], ["code-large", "openai-completions"],
+		]);
+	}
+});
+
+test("invalid modelApis never registers a silently downgraded provider", async (t) => {
+	const h = await discoveryHarness(t);
+	await h.configure(Object.fromEntries([null, [], "openai-responses", { code: "" }, { code: 42 }, { "": "api" }]
+		.map((modelApis, index) => [`bad-${index}`, { ...discoveryProvider, modelApis }])));
+	await h.start();
+	assert.equal(h.registrations.size, 0);
+	assert.equal(h.requests.length, 0);
+});
+
+test("panel modelApis edit persists immediately and reuses cached catalog", async (t) => {
+	initTheme("dark");
+	const h = await discoveryHarness(t, [{ id: "code" }]);
+	await h.configure({ foo: { ...discoveryProvider, compat: { supportsStore: false } } });
+	await h.start();
+	const ui = createScriptedUi([[ENTER], [...down(4), ENTER, "\u0001", "\u000b", '{"code":"openai-responses"}', ENTER, "\u001B"]]);
+	await h.commands.get("config:model-discovery")!.handler("", {
+		hasUI: true, ui: { custom: ui.custom, notify: () => {} },
+	} as unknown as Parameters<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>[1]);
+	const saved = JSON.parse(await readFile(join(h.dir, "models.json"), "utf8"));
+	assert.deepEqual(saved.providers.foo.modelApis, { code: "openai-responses" });
+	assert.deepEqual(saved.providers.foo.compat, { supportsStore: false });
+	assert.equal(h.requests.length, 1, "mapping edit must not fetch the catalog again");
+	assert.equal(h.registrations.get("foo")!.models?.[0].api, "openai-responses");
+});
+
+test("Pi runtime accepts discovery configuration and per-model API registrations", async (t) => {
+	const h = await discoveryHarness(t, [{ id: "code" }, { id: "other" }]);
+	await h.configure({ foo: { ...discoveryProvider, baseUrl: "https://api.example.com/v1",
+		modelApis: { code: "openai-responses" } } });
+	await h.start();
+	const runtime = await ModelRuntime.create({ modelsPath: join(h.dir, "models.json"),
+		authPath: join(h.dir, "auth.json"), modelsStorePath: join(h.dir, "catalog.json"), refreshOnCreate: false });
+	assert.equal(runtime.getError(), undefined);
+	runtime.registerProvider("foo", h.registrations.get("foo")!);
+	assert.equal(runtime.getModel("foo", "code")?.api, "openai-responses");
+	assert.equal(runtime.getModel("foo", "other")?.api, "openai-completions");
+	assert.equal(runtime.getModel("foo", "code")?.id, "code");
+	const requests: Array<[string, string]> = [];
+	t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+		const path = new URL(url).pathname;
+		const body = JSON.parse(String(init.body));
+		requests.push([path, body.model]);
+		const event = path.endsWith("/responses")
+			? { type: "response.completed", response: { id: "synthetic", status: "completed", output: [],
+				usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } } }
+			: { id: "synthetic", choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } };
+		return new Response(`data: ${JSON.stringify(event)}\n\n${path.endsWith("/responses") ? "" : "data: [DONE]\n\n"}`,
+			{ headers: { "content-type": "text/event-stream" } });
+	});
+	for (const id of ["code", "other"]) {
+		const result = await runtime.completeSimple(runtime.getModel("foo", id)!, {
+			messages: [{ role: "user", content: "synthetic", timestamp: 0 }],
+		}, { apiKey: "synthetic", maxRetries: 0 });
+		assert.equal(result.stopReason, "stop", result.errorMessage);
+	}
+	assert.deepEqual(requests, [["/v1/responses", "code"], ["/v1/chat/completions", "other"]]);
+});
 
 test("discovery defaults to baseUrl/models when modelsUrl is absent or empty", async (t) => {
 	const h = await discoveryHarness(t);

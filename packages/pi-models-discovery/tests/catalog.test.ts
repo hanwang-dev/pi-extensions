@@ -33,7 +33,7 @@ async function discoveryHarness(t: TestContext, entries?: Array<Record<string, u
 	t.after(async () => {
 		if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousDir;
-		await rm(dir, { recursive: true, force: true });
+		await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 	});
 	const requests: Array<{ url: string; headers: RequestInit["headers"] }> = [];
 	t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
